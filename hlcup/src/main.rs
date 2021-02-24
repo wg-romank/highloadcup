@@ -229,7 +229,9 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
         for j in 0..35 {
             let area = Area { posX: i * 10, posY: j * 10, sizeX: 10, sizeY: 10 };
             let result = explore(&client, &base_url, &area).await?;
-            explore_heap.push(result);
+            if result.amount > 0 {
+                explore_heap.push(result);
+            }
         }
     }
 
@@ -255,7 +257,9 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                     // todo: speculative digging here?
                     _ => for a in ar.area.divide().into_iter() {
                         let res = explore(&client, &base_url, &a).await?;
-                        explore_heap.push(Explore { area: a, amount: res.amount });
+                        if res.amount > 0 {
+                            explore_heap.push(Explore { area: a, amount: res.amount });
+                        }
                     }
                 }
             }
