@@ -257,7 +257,11 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                     // dig
                     if let Some(pending_dig) = dig_heap.pop() {
                         println!("dig {:#?}", pending_dig);
-                        let treasure = dig(&client, &base_url, &pending_dig.to_dig(lic.id)).await?;
+                        let treasure = dig(
+                            &client,
+                            &base_url,
+                            &pending_dig.to_dig(lic.id)
+                        ).await?;
 
                         if let Some(next_level) = pending_dig.deeper(
                             treasure.len() as u64
