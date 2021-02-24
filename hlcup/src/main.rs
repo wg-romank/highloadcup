@@ -181,13 +181,10 @@ async fn explore(client: &Client, address: &str, area: &Area) -> Response<Explor
 }
 
 async fn get_license(client: &Client, address: &str, coins: Vec<u64>) -> Response<License> {
-    let response = client.post(&(address.to_owned() + "/licenses"))
+    client.post(&(address.to_owned() + "/licenses"))
         .json(&coins)
         .send()
-        .await?;
-
-    println!("license response {:#?}", response);
-    response
+        .await?
         .json::<License>()
         .await
 }
@@ -198,8 +195,9 @@ async fn dig(client: &Client, address: &str, dig: &Dig) -> Response<Vec<String>>
         .send()
         .await?;
 
-    println!("dig response {:#?}", response);
+    println!("dig response {:#?}", response.text().await);
 
+    panic!("here");
     response
         .json::<Vec<String>>()
         .await
@@ -283,7 +281,7 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                             &client,
                             &base_url,
                             &dd
-                        ).await?;
+                        ).await?.unwrap_or(vec![]);
                         println!("treasure {:#?}", treasure);
 
                         if let Some(next_level) = pending_dig.deeper(
@@ -292,10 +290,12 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                             dig_heap.push(next_level);
                         }
 
-                        treasure_heap.push(Treasure {
-                            depth: pending_dig.current_depth,
-                            treasures: treasure
-                        });
+                        if treasure.len() > 0 {
+                            treasure_heap.push(Treasure {
+                                depth: pending_dig.current_depth,
+                                treasures: treasure
+                            });
+                        };
                     }
 
                     Some(License { digUsed: lic.digUsed - 1, ..lic })
