@@ -23,15 +23,34 @@ impl Area {
         Area { posX: x, posY: y, sizeX: 1, sizeY: 1}
     }
     fn size(&self) -> u64 { self.sizeX * self.sizeY }
-    fn divide(&self) -> [Area; 4] {
+    fn divide(&self) -> Vec<Area> {
         // todo: watch out for overflow?
         let halfX = (self.sizeX as f64 / 2.).ceil() as u64;
         let halfY = (self.sizeY as f64 / 2.).ceil() as u64;
 
-        [Area { posX: self.posX, posY: self.posY, sizeX: halfX, sizeY: halfY },
-         Area { posX: self.posX + halfX, posY: self.posY, sizeX: self.sizeX - halfX, sizeY: halfY },
-         Area { posX: self.posX, posY: self.posY + halfY, sizeX: halfX, sizeY: self.sizeY - halfY },
-         Area { posX: self.posX + halfX, posY: self.posY + halfY, sizeX: self.sizeX - halfX, sizeY: self.sizeY - halfY }]
+        let mut result = vec![];
+        if halfX > 0 || halfY > 0 {
+            result.push(
+                Area { posX: self.posX, posY: self.posY, sizeX: halfX, sizeY: halfY }
+            );
+        }
+        if halfX > 0 && self.sizeX - halfX > 0 {
+            result.push(
+                Area { posX: self.posX + halfX, posY: self.posY, sizeX: self.sizeX - halfX, sizeY: halfY }
+            );
+        }
+        if halfY > 0 && self.sizeY - halfY > 0 {
+            result.push(
+            Area { posX: self.posX, posY: self.posY + halfY, sizeX: halfX, sizeY: self.sizeY - halfY }
+            );
+        }
+        if halfX > 0 && self.sizeX - halfX > 0 && halfY > 0 && self.sizeY - halfY > 0 {
+            result.push(
+                Area { posX: self.posX + halfX, posY: self.posY + halfY, sizeX: self.sizeX - halfX, sizeY: self.sizeY - halfY }
+            );
+        };
+
+        result
     }
 
     fn hash(&self) -> String {
@@ -229,8 +248,8 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                 ),
                 // todo: speculative digging here?
                 _ => for a in ar.area.divide().into_iter() {
-                    let res = explore(&client, &base_url, a).await?;
-                    explore_heap.push(Explore { area: *a, amount: res.amount });
+                    let res = explore(&client, &base_url, &a).await?;
+                    explore_heap.push(Explore { area: a, amount: res.amount });
                 }
             }
         }
@@ -280,7 +299,7 @@ fn test_area_divide() {
 
     let division = a.divide();
 
-    let items = division.into_iter().map(|a| a.hash()).collect::<Vec<String>>();
+    let items = division.iter().map(|a| a.hash()).collect::<Vec<String>>();
 
     assert_eq!(
         vec![
@@ -294,7 +313,7 @@ fn test_area_divide() {
 
     let division2 = division[0].divide();
 
-    let items2 = division2.into_iter().map(|a| a.hash()).collect::<Vec<String>>();
+    let items2 = division2.iter().map(|a| a.hash()).collect::<Vec<String>>();
 
     assert_eq!(
         vec![
@@ -304,5 +323,17 @@ fn test_area_divide() {
             "[3, 3; 2, 2]",
         ],
         items2
-    )
+    );
+
+    let b = Area { posX: 0, posY: 0, sizeX: 1, sizeY: 2 };
+
+    let items3 = b.divide().iter().map(|a| a.hash()).collect::<Vec<String>>();
+
+    assert_eq!(
+        vec![
+            "[0, 0; 1, 1]",
+            "[0, 1; 1, 1]",
+        ],
+        items3
+    );
 }
