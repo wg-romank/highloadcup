@@ -24,7 +24,6 @@ impl Area {
     }
     fn size(&self) -> u64 { self.sizeX * self.sizeY }
     fn divide(&self) -> Vec<Area> {
-        // todo: watch out for overflow?
         let halfX = (self.sizeX as f64 / 2.).ceil() as u64;
         let halfY = (self.sizeY as f64 / 2.).ceil() as u64;
 
@@ -191,10 +190,14 @@ async fn get_license(client: &Client, address: &str, coins: Vec<u64>) -> Respons
 }
 
 async fn dig(client: &Client, address: &str, dig: &Dig) -> Response<Vec<String>> {
-    client.post(&(address.to_owned() + "/dig"))
+    let response = client.post(&(address.to_owned() + "/dig"))
         .json(dig)
         .send()
-        .await?
+        .await?;
+
+    println!("dig response {:#?}", response);
+
+    response
         .json::<Vec<String>>()
         .await
 }
@@ -219,10 +222,17 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     println!("Created client");
 
     let mut coins: Vec<u64> = vec![];
-    let area = Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 };
-    let result = explore(&client, &base_url, &area).await?;
+    let mut explore_heap = BinaryHeap::new();
 
-    let mut explore_heap = BinaryHeap::from(vec![result]);
+    // todo: proper populate
+    for i in 0..35 {
+        for j in 0..35 {
+            let area = Area { posX: i * 10, posY: j * 10, sizeX: 10, sizeY: 10 };
+            let result = explore(&client, &base_url, &area).await?;
+            explore_heap.push(result);
+        }
+    }
+
     let mut license: Option<License> = None;
     let mut dig_heap: BinaryHeap<PendingDig> = BinaryHeap::new();
     let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
@@ -237,14 +247,16 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
         }
         if let Some(ar) = explore_heap.pop() {
             println!("explore {:#?}", ar);
-            match ar.area.size() {
-                1 => dig_heap.push(
-                    PendingDig::new(ar.area.posX, ar.area.posY, ar.amount)
-                ),
-                // todo: speculative digging here?
-                _ => for a in ar.area.divide().into_iter() {
-                    let res = explore(&client, &base_url, &a).await?;
-                    explore_heap.push(Explore { area: a, amount: res.amount });
+            if ar.amount > 0 {
+                match ar.area.size() {
+                    1 => dig_heap.push(
+                        PendingDig::new(ar.area.posX, ar.area.posY, ar.amount)
+                    ),
+                    // todo: speculative digging here?
+                    _ => for a in ar.area.divide().into_iter() {
+                        let res = explore(&client, &base_url, &a).await?;
+                        explore_heap.push(Explore { area: a, amount: res.amount });
+                    }
                 }
             }
         }
@@ -257,11 +269,15 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                     // dig
                     if let Some(pending_dig) = dig_heap.pop() {
                         println!("dig {:#?}", pending_dig);
+                        let dd = pending_dig.to_dig(lic.id);
+
+                        println!("dd {:#?}", dd);
                         let treasure = dig(
                             &client,
                             &base_url,
-                            &pending_dig.to_dig(lic.id)
+                            &dd
                         ).await?;
+                        println!("treasure {:#?}", treasure);
 
                         if let Some(next_level) = pending_dig.deeper(
                             treasure.len() as u64
@@ -279,6 +295,7 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                 },
                 _ => Some(
                     if let Some(c) = coins.pop() {
+                        // todo: test
                         get_license(&client, &base_url, vec![c]).await?
                     } else {
                         get_license(&client, &base_url, vec![]).await?
@@ -335,4 +352,38 @@ fn test_area_divide() {
         ],
         items3
     );
+}
+
+#[test]
+fn test_explore_ord() {
+    let mut hp = BinaryHeap::new();
+    hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 100, sizeY: 100 }, amount: 10 });
+    hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 }, amount: 10 });
+    hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1 }, amount: 3 });
+
+    assert_eq!(hp.pop().unwrap().area.size(), 1);
+    assert_eq!(hp.pop().unwrap().area.size(), 100);
+    assert_eq!(hp.pop().unwrap().area.size(), 10000);
+}
+
+#[test]
+fn test_dig_ord() {
+    let mut hp = BinaryHeap::new();
+    hp.push(PendingDig { x: 2, y: 0, current_depth: 1, remaining: 10 });
+    hp.push(PendingDig { x: 3, y: 0, current_depth: 2, remaining: 10 });
+    hp.push(PendingDig { x: 1, y: 0, current_depth: 2, remaining: 11 });
+
+    assert_eq!(hp.pop().unwrap().x, 1);
+    assert_eq!(hp.pop().unwrap().x, 2);
+    assert_eq!(hp.pop().unwrap().x, 3);
+}
+
+#[test]
+fn test_treasure_ord() {
+    let mut hp = BinaryHeap::new();
+    hp.push(Treasure { depth: 1, treasures: vec![]});
+    hp.push(Treasure { depth: 2, treasures: vec![]});
+
+    assert_eq!(hp.pop().unwrap().depth, 2);
+    assert_eq!(hp.pop().unwrap().depth, 1);
 }
