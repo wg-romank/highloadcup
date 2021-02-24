@@ -181,10 +181,13 @@ async fn explore(client: &Client, address: &str, area: &Area) -> Response<Explor
 }
 
 async fn get_license(client: &Client, address: &str, coins: Vec<u64>) -> Response<License> {
-    client.post(&(address.to_owned() + "/licenses"))
+    let response = client.post(&(address.to_owned() + "/licenses"))
         .json(&coins)
         .send()
-        .await?
+        .await?;
+
+    println!("license response {:#?}", response);
+    response
         .json::<License>()
         .await
 }
