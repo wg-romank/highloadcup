@@ -144,25 +144,20 @@ impl PartialOrd for PendingDig {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct Treasure {
-    treasures: Vec<String>
-}
-
 #[derive(Debug, PartialEq, Eq)]
-struct PendingCash {
+struct Treasure {
     depth: u8,
     treasures: Vec<String>,
 }
 
-impl Ord for PendingCash {
+impl Ord for Treasure {
     fn cmp(&self, other: &Self) -> Ordering {
         // todo: other kind of priority
         self.depth.cmp(&other.depth)
     }
 }
 
-impl PartialOrd for PendingCash {
+impl PartialOrd for Treasure {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(&other))
     }
@@ -195,12 +190,12 @@ async fn get_license(client: &Client, address: &str, coins: Vec<u64>) -> Respons
         .await
 }
 
-async fn dig(client: &Client, address: &str, dig: &Dig) -> Response<Treasure> {
+async fn dig(client: &Client, address: &str, dig: &Dig) -> Response<Vec<String>> {
     client.post(&(address.to_owned() + "/dig"))
         .json(dig)
         .send()
         .await?
-        .json::<Treasure>()
+        .json::<Vec<String>>()
         .await
 }
 
@@ -230,7 +225,7 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     let mut explore_heap = BinaryHeap::from(vec![result]);
     let mut license: Option<License> = None;
     let mut dig_heap: BinaryHeap<PendingDig> = BinaryHeap::new();
-    let mut treasure_heap: BinaryHeap<PendingCash> = BinaryHeap::new();
+    let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
 
     loop {
         if let Some(pending_cash) = treasure_heap.pop() {
@@ -265,14 +260,14 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
                         let treasure = dig(&client, &base_url, &pending_dig.to_dig(lic.id)).await?;
 
                         if let Some(next_level) = pending_dig.deeper(
-                            treasure.treasures.len() as u64
+                            treasure.len() as u64
                         ) {
                             dig_heap.push(next_level);
                         }
 
-                        treasure_heap.push(PendingCash {
+                        treasure_heap.push(Treasure {
                             depth: pending_dig.current_depth,
-                            treasures: treasure.treasures
+                            treasures: treasure
                         });
                     }
 
