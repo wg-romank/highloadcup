@@ -19,9 +19,6 @@ struct Area {
 }
 
 impl Area {
-    fn from(x: u64, y: u64) -> Area {
-        Area { posX: x, posY: y, sizeX: 1, sizeY: 1}
-    }
     fn size(&self) -> u64 { self.sizeX * self.sizeY }
     fn divide(&self) -> Vec<Area> {
         let halfX = (self.sizeX as f64 / 2.).ceil() as u64;
@@ -49,6 +46,10 @@ impl Area {
             );
         };
 
+        if result.is_empty() {
+            result.push(*self);
+        }
+
         result
     }
 
@@ -63,14 +64,10 @@ struct Explore {
     amount: u64,
 }
 
-impl Explore {
-    // todo: should this be f64?
-    fn density(&self) -> u64 { self.amount }
-}
-
 impl Ord for Explore {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.density().cmp(&other.density())
+        self.amount.cmp(&other.amount)
+            .then(self.area.size().cmp(&other.area.size()).reverse())
     }
 }
 
@@ -125,15 +122,12 @@ impl PendingDig {
         .filter(|d| d.current_depth <= 10 && d.remaining > 0)
     }
 
-    fn hardness(&self) -> u8 {
-        10 - self.current_depth
-    }
 }
 
 impl Ord for PendingDig {
     fn cmp(&self, other: &Self) -> Ordering {
         self.remaining.cmp(&other.remaining)
-            .then(self.hardness().cmp(&other.hardness()))
+            .then(self.current_depth.cmp(&other.current_depth).reverse())
     }
 }
 
@@ -226,19 +220,13 @@ async fn logic(
         }
     }
     if let Some(ar) = explore_heap.pop() {
-        if ar.amount > 0 {
-            match ar.area.size() {
-                1 => dig_heap.push(
-                    PendingDig::new(ar.area.posX, ar.area.posY, ar.amount)
-                ),
-                // todo: speculative digging here?
-                _ => for a in ar.area.divide().into_iter() {
-                    // todo: catch errors here
-                    let res = explore(&client, &base_url, &a).await?;
-                    if res.amount > 0 {
-                        explore_heap.push(Explore { area: a, amount: res.amount });
-                    }
-                }
+        for a in ar.area.divide().into_iter() {
+            let res = explore(&client, &base_url, &a).await?;
+
+            if res.amount > 0 && res.area.size() == 1 {
+                dig_heap.push(PendingDig::new(ar.area.posX, ar.area.posY, ar.amount));
+            } else if res.amount > 0 {
+                explore_heap.push(res);
             }
         }
     }
@@ -294,8 +282,8 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     let mut explore_heap = BinaryHeap::new();
 
     // todo: proper populate
-    for i in 0..35 {
-        for j in 0..35 {
+    for i in (0..3500).step_by(100) {
+        for j in (0..3500).step_by(100) {
             let area = Area { posX: i * 10, posY: j * 10, sizeX: 10, sizeY: 10 };
             let result = explore(&client, &base_url, &area).await?;
             if result.amount > 0 {
@@ -370,6 +358,12 @@ fn test_area_divide() {
         ],
         items3
     );
+
+    let c = Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1};
+    assert_eq!(
+        c.divide(),
+        vec![c]
+    )
 }
 
 #[test]
@@ -379,17 +373,17 @@ fn test_explore_ord() {
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 }, amount: 10 });
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1 }, amount: 3 });
 
-    assert_eq!(hp.pop().unwrap().area.size(), 10000);
     assert_eq!(hp.pop().unwrap().area.size(), 100);
+    assert_eq!(hp.pop().unwrap().area.size(), 10000);
     assert_eq!(hp.pop().unwrap().area.size(), 1);
 }
 
 #[test]
 fn test_dig_ord() {
     let mut hp = BinaryHeap::new();
-    hp.push(PendingDig { x: 2, y: 0, current_depth: 1, remaining: 10 });
     hp.push(PendingDig { x: 3, y: 0, current_depth: 2, remaining: 10 });
     hp.push(PendingDig { x: 1, y: 0, current_depth: 2, remaining: 11 });
+    hp.push(PendingDig { x: 2, y: 0, current_depth: 1, remaining: 10 });
 
     assert_eq!(hp.pop().unwrap().x, 1);
     assert_eq!(hp.pop().unwrap().x, 2);
