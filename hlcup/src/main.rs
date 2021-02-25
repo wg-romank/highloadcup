@@ -282,8 +282,8 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     let mut explore_heap = BinaryHeap::new();
 
     // todo: proper populate
-    for i in (0..3500).step_by(100) {
-        for j in (0..3500).step_by(100) {
+    for i in 0..35 {
+        for j in 0..35 {
             let area = Area { posX: i * 10, posY: j * 10, sizeX: 10, sizeY: 10 };
             let result = explore(&client, &base_url, &area).await?;
             if result.amount > 0 {
