@@ -219,9 +219,10 @@ async fn logic(
     if let Some(pending_cash) = treasure_heap.pop() {
         println!("cash {:#?}", pending_cash);
         for treasure in pending_cash.treasures.into_iter() {
-            // todo: catch errors here
-            let got_coins = cash(&client, &base_url, treasure).await?;
-            coins.extend(got_coins);
+            match cash(&client, &base_url, treasure.clone()).await {
+                Ok(got_coins) => coins.extend(got_coins),
+                Err(e) => treasure_heap.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]}),
+            };
         }
     }
     if let Some(ar) = explore_heap.pop() {
@@ -266,8 +267,8 @@ async fn logic(
         },
         _ => Some(
             if let Some(c) = coins.pop() {
-                // todo: test & catch errors? to not waste coins
-                get_license(&client, &base_url, vec![c]).await?
+                get_license(&client, &base_url, vec![c]).await
+                    .map_err(|e| { coins.push(c); e })?
             } else {
                 get_license(&client, &base_url, vec![]).await?
             }
