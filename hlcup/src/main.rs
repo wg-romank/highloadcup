@@ -65,7 +65,7 @@ struct Explore {
 
 impl Explore {
     // todo: should this be f64?
-    fn density(&self) -> u64 { self.amount / self.area.size() }
+    fn density(&self) -> u64 { self.amount }
 }
 
 impl Ord for Explore {
@@ -80,7 +80,7 @@ impl PartialOrd for Explore {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone, Copy)]
 struct License {
     id: u64,
     digAllowed: u8,
@@ -190,15 +190,10 @@ async fn get_license(client: &Client, address: &str, coins: Vec<u64>) -> Respons
 }
 
 async fn dig(client: &Client, address: &str, dig: &Dig) -> Response<Vec<String>> {
-    let response = client.post(&(address.to_owned() + "/dig"))
+    client.post(&(address.to_owned() + "/dig"))
         .json(dig)
         .send()
-        .await?;
-
-    println!("dig response {:#?}", response.text().await);
-
-    panic!("here");
-    response
+        .await?
         .json::<Vec<String>>()
         .await
 }
@@ -212,6 +207,76 @@ async fn cash(client: &Client, address: &str, treasure: String) -> Response<Vec<
         .await
 }
 
+async fn logic(
+    base_url: &str,
+    client: &Client,
+    coins: &mut Vec<u64>,
+    license: &Option<License>,
+    explore_heap: &mut BinaryHeap<Explore>,
+    dig_heap: &mut BinaryHeap<PendingDig>,
+    treasure_heap: &mut BinaryHeap<Treasure>,
+) -> Response<Option<License>> {
+    if let Some(pending_cash) = treasure_heap.pop() {
+        println!("cash {:#?}", pending_cash);
+        for treasure in pending_cash.treasures.into_iter() {
+            // todo: catch errors here
+            let got_coins = cash(&client, &base_url, treasure).await?;
+            coins.extend(got_coins);
+        }
+    }
+    if let Some(ar) = explore_heap.pop() {
+        if ar.amount > 0 {
+            match ar.area.size() {
+                1 => dig_heap.push(
+                    PendingDig::new(ar.area.posX, ar.area.posY, ar.amount)
+                ),
+                // todo: speculative digging here?
+                _ => for a in ar.area.divide().into_iter() {
+                    // todo: catch errors here
+                    let res = explore(&client, &base_url, &a).await?;
+                    if res.amount > 0 {
+                        explore_heap.push(Explore { area: a, amount: res.amount });
+                    }
+                }
+            }
+        }
+    }
+
+    // todo: ordering
+    let used_license = match license {
+        Some(lic) if lic.digUsed < lic.digAllowed => {
+            println!("license {:#?}", lic);
+            if let Some(pending_dig) = dig_heap.pop() {
+                // println!("dig {:#?}", pending_dig);
+                let treasure = dig(&client, &base_url, &pending_dig.to_dig(lic.id)).await?;
+
+                println!("treasure {:#?}", treasure);
+                if let Some(next_level) = pending_dig.deeper(treasure.len() as u64) {
+                    dig_heap.push(next_level);
+                }
+
+                treasure_heap.push(Treasure {
+                    depth: pending_dig.current_depth,
+                    treasures: treasure,
+                });
+                Some(License { digUsed: lic.digUsed + 1, ..*lic })
+            } else {
+                Some(*lic)
+            }
+        },
+        _ => Some(
+            if let Some(c) = coins.pop() {
+                // todo: test & catch errors? to not waste coins
+                get_license(&client, &base_url, vec![c]).await?
+            } else {
+                get_license(&client, &base_url, vec![]).await?
+            }
+        ),
+    };
+
+    Ok(used_license)
+}
+
 #[tokio::main(worker_threads = 1)]
 async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     println!("Started");
@@ -222,7 +287,9 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     println!("Created client");
 
+    // multiple producers, single consumer? for coins
     let mut coins: Vec<u64> = vec![];
+
     let mut explore_heap = BinaryHeap::new();
 
     // todo: proper populate
@@ -241,74 +308,17 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
 
     loop {
-        if let Some(pending_cash) = treasure_heap.pop() {
-            println!("cash {:#?}", pending_cash);
-            for treasure in pending_cash.treasures.into_iter() {
-                let got_coins = cash(&client, &base_url, treasure).await?;
-                coins.extend(got_coins);
-            }
-        }
-        if let Some(ar) = explore_heap.pop() {
-            println!("explore {:#?}", ar);
-            if ar.amount > 0 {
-                match ar.area.size() {
-                    1 => dig_heap.push(
-                        PendingDig::new(ar.area.posX, ar.area.posY, ar.amount)
-                    ),
-                    // todo: speculative digging here?
-                    _ => for a in ar.area.divide().into_iter() {
-                        let res = explore(&client, &base_url, &a).await?;
-                        if res.amount > 0 {
-                            explore_heap.push(Explore { area: a, amount: res.amount });
-                        }
-                    }
-                }
-            }
-        }
-
-        // todo: ordering
-        if !dig_heap.is_empty() {
-            license = match license {
-                Some(lic) if lic.digUsed < lic.digAllowed => {
-                    println!("license {:#?}", lic);
-                    // dig
-                    if let Some(pending_dig) = dig_heap.pop() {
-                        println!("dig {:#?}", pending_dig);
-                        let dd = pending_dig.to_dig(lic.id);
-
-                        println!("dd {:#?}", dd);
-                        let treasure = dig(
-                            &client,
-                            &base_url,
-                            &dd
-                        ).await?.unwrap_or(vec![]);
-                        println!("treasure {:#?}", treasure);
-
-                        if let Some(next_level) = pending_dig.deeper(
-                            treasure.len() as u64
-                        ) {
-                            dig_heap.push(next_level);
-                        }
-
-                        if treasure.len() > 0 {
-                            treasure_heap.push(Treasure {
-                                depth: pending_dig.current_depth,
-                                treasures: treasure
-                            });
-                        };
-                    }
-
-                    Some(License { digUsed: lic.digUsed - 1, ..lic })
-                },
-                _ => Some(
-                    if let Some(c) = coins.pop() {
-                        // todo: test
-                        get_license(&client, &base_url, vec![c]).await?
-                    } else {
-                        get_license(&client, &base_url, vec![]).await?
-                    }
-                ),
-            };
+        match logic(
+            &base_url,
+            &client,
+            &mut coins,
+            &license,
+            &mut explore_heap,
+            &mut dig_heap,
+            &mut treasure_heap
+        ).await {
+            Ok(used_license) => license = used_license,
+            Err(e) => println!("error {}", e)
         }
     }
 
@@ -368,9 +378,9 @@ fn test_explore_ord() {
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 }, amount: 10 });
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1 }, amount: 3 });
 
-    assert_eq!(hp.pop().unwrap().area.size(), 1);
-    assert_eq!(hp.pop().unwrap().area.size(), 100);
     assert_eq!(hp.pop().unwrap().area.size(), 10000);
+    assert_eq!(hp.pop().unwrap().area.size(), 100);
+    assert_eq!(hp.pop().unwrap().area.size(), 1);
 }
 
 #[test]
