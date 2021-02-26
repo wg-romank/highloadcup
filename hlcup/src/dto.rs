@@ -2,38 +2,39 @@ use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
 pub struct Area {
-    pub posX: u64,
-    pub posY: u64,
-    pub sizeX: u64,
-    pub sizeY: u64,
+    pub pos_x: u64,
+    pub pos_y: u64,
+    pub size_x: u64,
+    pub size_y: u64,
 }
 
 impl Area {
-    pub fn size(&self) -> u64 { self.sizeX * self.sizeY }
+    pub fn size(&self) -> u64 { self.size_x * self.size_y }
     pub fn divide(&self) -> Vec<Area> {
-        let halfX = (self.sizeX as f64 / 2.).ceil() as u64;
-        let halfY = (self.sizeY as f64 / 2.).ceil() as u64;
+        let half_x = (self.size_x as f64 / 2.).ceil() as u64;
+        let half_y = (self.size_y as f64 / 2.).ceil() as u64;
 
         let mut result = vec![];
-        if halfX > 0 || halfY > 0 {
+        if half_x > 0 || half_y > 0 {
             result.push(
-                Area { posX: self.posX, posY: self.posY, sizeX: halfX, sizeY: halfY }
+                Area { pos_x: self.pos_x, pos_y: self.pos_y, size_x: half_x, size_y: half_y }
             );
         }
-        if halfX > 0 && self.sizeX - halfX > 0 {
+        if half_x > 0 && self.size_x - half_x > 0 {
             result.push(
-                Area { posX: self.posX + halfX, posY: self.posY, sizeX: self.sizeX - halfX, sizeY: halfY }
+                Area { pos_x: self.pos_x + half_x, pos_y: self.pos_y, size_x: self.size_x - half_x, size_y: half_y }
             );
         }
-        if halfY > 0 && self.sizeY - halfY > 0 {
+        if half_y > 0 && self.size_y - half_y > 0 {
             result.push(
-                Area { posX: self.posX, posY: self.posY + halfY, sizeX: halfX, sizeY: self.sizeY - halfY }
+                Area { pos_x: self.pos_x, pos_y: self.pos_y + half_y, size_x: half_x, size_y: self.size_y - half_y }
             );
         }
-        if halfX > 0 && self.sizeX - halfX > 0 && halfY > 0 && self.sizeY - halfY > 0 {
+        if half_x > 0 && self.size_x - half_x > 0 && half_y > 0 && self.size_y - half_y > 0 {
             result.push(
-                Area { posX: self.posX + halfX, posY: self.posY + halfY, sizeX: self.sizeX - halfX, sizeY: self.sizeY - halfY }
+                Area { pos_x: self.pos_x + half_x, pos_y: self.pos_y + half_y, size_x: self.size_x - half_x, size_y: self.size_y - half_y }
             );
         };
 
@@ -45,7 +46,7 @@ impl Area {
     }
 
     fn hash(&self) -> String {
-        format!("[{}, {}; {}, {}]", self.posX, self.posY, self.sizeX, self.sizeY)
+        format!("[{}, {}; {}, {}]", self.pos_x, self.pos_y, self.size_x, self.size_y)
     }
 }
 
@@ -69,24 +70,27 @@ impl PartialOrd for Explore {
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
 pub struct License {
     pub id: u64,
-    pub digAllowed: u8,
-    pub digUsed: u8,
+    pub dig_allowed: u8,
+    pub dig_used: u8,
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Dig {
-    pub licenseID: u64,
-    pub posX: u64,
-    pub posY: u64,
+    #[serde(rename = "licenseID")]
+    pub license_id: u64,
+    pub pos_x: u64,
+    pub pos_y: u64,
     pub depth: u8,
 }
 
 
 #[test]
 fn test_area_divide() {
-    let a = Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 };
+    let a = Area { pos_x: 0, pos_y: 0, size_x: 10, size_y: 10 };
 
     let division = a.divide();
 
@@ -116,7 +120,7 @@ fn test_area_divide() {
         items2
     );
 
-    let b = Area { posX: 0, posY: 0, sizeX: 1, sizeY: 2 };
+    let b = Area { pos_x: 0, pos_y: 0, size_x: 1, size_y: 2 };
 
     let items3 = b.divide().iter().map(|a| a.hash()).collect::<Vec<String>>();
 
@@ -128,7 +132,7 @@ fn test_area_divide() {
         items3
     );
 
-    let c = Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1};
+    let c = Area { pos_x: 0, pos_y: 0, size_x: 1, size_y: 1};
     assert_eq!(
         c.divide(),
         vec![c]

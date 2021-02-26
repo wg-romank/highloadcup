@@ -27,9 +27,9 @@ impl PendingDig {
 
     fn to_dig(&self, license_id: u64) -> Dig {
         Dig {
-            licenseID: license_id,
-            posX: self.x,
-            posY: self.y,
+            license_id: license_id,
+            pos_x: self.x,
+            pos_y: self.y,
             depth: self.current_depth,
         }
     }
@@ -102,7 +102,7 @@ async fn logic(
             let res = client.explore(&a).await?;
 
             if res.amount > 0 && res.area.size() == 1 {
-                dig_heap.push(PendingDig::new(ar.area.posX, ar.area.posY, ar.amount));
+                dig_heap.push(PendingDig::new(ar.area.pos_x, ar.area.pos_y, ar.amount));
             } else if res.amount > 0 {
                 explore_heap.push(res);
             }
@@ -111,7 +111,7 @@ async fn logic(
 
     // todo: ordering
     let used_license = match license {
-        Some(lic) if lic.digUsed < lic.digAllowed => {
+        Some(lic) if lic.dig_used < lic.dig_allowed => {
             // println!("license {:#?}", lic);
             if let Some(pending_dig) = dig_heap.pop() {
                 // println!("dig {:#?}", pending_dig);
@@ -128,11 +128,11 @@ async fn logic(
                         treasures: treasure,
                     });
                 }
-                Some(License { digUsed: lic.digUsed + 1, ..*lic })
+                Some(License { dig_used: lic.dig_used + 1, ..*lic })
             } else {
                 Some(*lic)
             }
-        },
+        }
         _ => Some(
             if let Some(c) = coins.pop() {
                 client.get_license(vec![c]).await
@@ -161,7 +161,7 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     //         let x = rng.sample(dist);
     //         let y = rng.sample(dist);
     //
-    //         let area = Area { posX: x, posY: y, sizeX: *i as u64, sizeY: *i as u64};
+    //         let area = Area { pos_x: x, pos_y: y, size_x: *i as u64, size_y: *i as u64};
     //
     //         match explore(&client, &base_url, &area).await {
     //             Ok(r) => println!("({}, {}); {} success", x, y, i),
@@ -175,7 +175,7 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     let mut coins: Vec<u64> = vec![];
 
     let mut explore_heap = BinaryHeap::new();
-    let area = Area { posX: 0, posY: 0, sizeX: 3500, sizeY: 3500};
+    let area = Area { pos_x: 0, pos_y: 0, size_x: 3500, size_y: 3500};
     let explore = client.explore(&area).await?;
     explore_heap.push(explore);
 
@@ -208,9 +208,9 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_explore_ord() {
     let mut hp = BinaryHeap::new();
-    hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 100, sizeY: 100 }, amount: 10 });
-    hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 }, amount: 10 });
-    hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1 }, amount: 3 });
+    hp.push(Explore { area: Area { pos_x: 0, pos_y: 0, size_x: 100, size_y: 100 }, amount: 10 });
+    hp.push(Explore { area: Area { pos_x: 0, pos_y: 0, size_x: 10, size_y: 10 }, amount: 10 });
+    hp.push(Explore { area: Area { pos_x: 0, pos_y: 0, size_x: 1, size_y: 1 }, amount: 3 });
 
     assert_eq!(hp.pop().unwrap().area.size(), 1);
     assert_eq!(hp.pop().unwrap().area.size(), 100);
