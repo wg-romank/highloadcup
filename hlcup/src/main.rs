@@ -1,96 +1,16 @@
-use reqwest::Client;
-use serde::{Serialize, Deserialize};
+use rand;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use rand::distributions::Uniform;
+use rand::{thread_rng, Rng};
 
-#[derive(Debug, Deserialize)]
-struct Wallet {
-    balance: u64,
-    wallet: Vec<u64>,
-}
+mod client;
+mod dto;
 
+use client::Client;
+use client::Response;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
-struct Area {
-    posX: u64,
-    posY: u64,
-    sizeX: u64,
-    sizeY: u64,
-}
-
-impl Area {
-    fn size(&self) -> u64 { self.sizeX * self.sizeY }
-    fn divide(&self) -> Vec<Area> {
-        let halfX = (self.sizeX as f64 / 2.).ceil() as u64;
-        let halfY = (self.sizeY as f64 / 2.).ceil() as u64;
-
-        let mut result = vec![];
-        if halfX > 0 || halfY > 0 {
-            result.push(
-                Area { posX: self.posX, posY: self.posY, sizeX: halfX, sizeY: halfY }
-            );
-        }
-        if halfX > 0 && self.sizeX - halfX > 0 {
-            result.push(
-                Area { posX: self.posX + halfX, posY: self.posY, sizeX: self.sizeX - halfX, sizeY: halfY }
-            );
-        }
-        if halfY > 0 && self.sizeY - halfY > 0 {
-            result.push(
-            Area { posX: self.posX, posY: self.posY + halfY, sizeX: halfX, sizeY: self.sizeY - halfY }
-            );
-        }
-        if halfX > 0 && self.sizeX - halfX > 0 && halfY > 0 && self.sizeY - halfY > 0 {
-            result.push(
-                Area { posX: self.posX + halfX, posY: self.posY + halfY, sizeX: self.sizeX - halfX, sizeY: self.sizeY - halfY }
-            );
-        };
-
-        if result.is_empty() {
-            result.push(*self);
-        }
-
-        result
-    }
-
-    fn hash(&self) -> String {
-        format!("[{}, {}; {}, {}]", self.posX, self.posY, self.sizeX, self.sizeY)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-struct Explore {
-    area: Area,
-    amount: u64,
-}
-
-impl Ord for Explore {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.amount.cmp(&other.amount)
-            .then(self.area.size().cmp(&other.area.size()).reverse())
-    }
-}
-
-impl PartialOrd for Explore {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-#[derive(Debug, Deserialize, Clone, Copy)]
-struct License {
-    id: u64,
-    digAllowed: u8,
-    digUsed: u8,
-}
-
-#[derive(Debug, Serialize)]
-struct Dig {
-    licenseID: u64,
-    posX: u64,
-    posY: u64,
-    depth: u8,
-}
+use dto::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingDig {
@@ -114,20 +34,23 @@ impl PendingDig {
         }
     }
 
-    fn deeper(&self, remaining: u64) -> Option<PendingDig> {
-        Some(PendingDig {
+    fn next_level(&self, excavated: u64) -> Option<PendingDig> {
+        if self.current_depth < 10 && self.remaining > excavated {
+            Some(PendingDig {
                 current_depth: self.current_depth + 1,
-                remaining: self.remaining - remaining,
+                remaining: self.remaining - excavated,
                 ..*self })
-        .filter(|d| d.current_depth <= 10 && d.remaining > 0)
+        } else {
+            None
+        }
     }
 
 }
 
 impl Ord for PendingDig {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.remaining.cmp(&other.remaining)
-            .then(self.current_depth.cmp(&other.current_depth).reverse())
+        (self.remaining * self.current_depth as u64)
+            .cmp(&(other.remaining * other.current_depth as u64))
     }
 }
 
@@ -156,53 +79,7 @@ impl PartialOrd for Treasure {
     }
 }
 
-type Response<T> = Result<T, reqwest::Error>;
-
-async fn get_balance(address: &str) -> Response<Wallet> {
-    reqwest::get( &(address.to_owned() + "/balance"))
-        .await?
-        .json::<Wallet>()
-        .await
-}
-
-async fn explore(client: &Client, address: &str, area: &Area) -> Response<Explore> {
-    client.post(&(address.to_owned() + "/explore"))
-        .json(area)
-        .send()
-        .await?
-        .json::<Explore>()
-        .await
-}
-
-async fn get_license(client: &Client, address: &str, coins: Vec<u64>) -> Response<License> {
-    client.post(&(address.to_owned() + "/licenses"))
-        .json(&coins)
-        .send()
-        .await?
-        .json::<License>()
-        .await
-}
-
-async fn dig(client: &Client, address: &str, dig: &Dig) -> Response<Vec<String>> {
-    client.post(&(address.to_owned() + "/dig"))
-        .json(dig)
-        .send()
-        .await?
-        .json::<Vec<String>>()
-        .await
-}
-
-async fn cash(client: &Client, address: &str, treasure: String) -> Response<Vec<u64>> {
-    client.post(&(address.to_owned() + "/cash"))
-        .json(&treasure)
-        .send()
-        .await?
-        .json::<Vec<u64>>()
-        .await
-}
-
 async fn logic(
-    base_url: &str,
     client: &Client,
     coins: &mut Vec<u64>,
     license: &Option<License>,
@@ -210,18 +87,19 @@ async fn logic(
     dig_heap: &mut BinaryHeap<PendingDig>,
     treasure_heap: &mut BinaryHeap<Treasure>,
 ) -> Response<Option<License>> {
-    if let Some(pending_cash) = treasure_heap.pop() {
+    while let Some(pending_cash) = treasure_heap.pop() {
         println!("cash {:#?}", pending_cash);
         for treasure in pending_cash.treasures.into_iter() {
-            match cash(&client, &base_url, treasure.clone()).await {
+            match client.cash(treasure.clone()).await {
                 Ok(got_coins) => coins.extend(got_coins),
                 Err(e) => treasure_heap.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]}),
             };
         }
     }
     if let Some(ar) = explore_heap.pop() {
+        // println!("explore {:#?}", ar);
         for a in ar.area.divide().into_iter() {
-            let res = explore(&client, &base_url, &a).await?;
+            let res = client.explore(&a).await?;
 
             if res.amount > 0 && res.area.size() == 1 {
                 dig_heap.push(PendingDig::new(ar.area.posX, ar.area.posY, ar.amount));
@@ -234,20 +112,22 @@ async fn logic(
     // todo: ordering
     let used_license = match license {
         Some(lic) if lic.digUsed < lic.digAllowed => {
-            println!("license {:#?}", lic);
+            // println!("license {:#?}", lic);
             if let Some(pending_dig) = dig_heap.pop() {
                 // println!("dig {:#?}", pending_dig);
-                let treasure = dig(&client, &base_url, &pending_dig.to_dig(lic.id)).await?;
+                let treasure = client.dig(&pending_dig.to_dig(lic.id)).await?;
 
                 println!("treasure {:#?}", treasure);
-                if let Some(next_level) = pending_dig.deeper(treasure.len() as u64) {
+                if let Some(next_level) = pending_dig.next_level(treasure.len() as u64) {
                     dig_heap.push(next_level);
                 }
 
-                treasure_heap.push(Treasure {
-                    depth: pending_dig.current_depth,
-                    treasures: treasure,
-                });
+                if treasure.len() > 0 {
+                    treasure_heap.push(Treasure {
+                        depth: pending_dig.current_depth,
+                        treasures: treasure,
+                    });
+                }
                 Some(License { digUsed: lic.digUsed + 1, ..*lic })
             } else {
                 Some(*lic)
@@ -255,10 +135,10 @@ async fn logic(
         },
         _ => Some(
             if let Some(c) = coins.pop() {
-                get_license(&client, &base_url, vec![c]).await
+                client.get_license(vec![c]).await
                     .map_err(|e| { coins.push(c); e })?
             } else {
-                get_license(&client, &base_url, vec![]).await?
+                client.get_license(vec![]).await?
             }
         ),
     };
@@ -270,35 +150,42 @@ async fn logic(
 async fn main() ->  Result<(), Box<dyn std::error::Error>> {
     println!("Started");
     let address = std::env::var("ADDRESS")?;
-    let base_url = format!("http://{}:8000", address);
+    let client = Client::new(&address);
 
-    println!("Base url {}", base_url);
-    let client = reqwest::Client::new();
-    println!("Created client");
+    // // testing explore
+    // let mut rng = thread_rng();
+    // let dist = Uniform::new(0, 3400);
+    //
+    // for i in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100].iter() {
+    //     for _ in 0..10 {
+    //         let x = rng.sample(dist);
+    //         let y = rng.sample(dist);
+    //
+    //         let area = Area { posX: x, posY: y, sizeX: *i as u64, sizeY: *i as u64};
+    //
+    //         match explore(&client, &base_url, &area).await {
+    //             Ok(r) => println!("({}, {}); {} success", x, y, i),
+    //             Err(e) => println!("({}, {}); {} error {}", x, y, i, e),
+    //         }
+    //     }
+    // }
+    // testing explore
 
     // multiple producers, single consumer? for coins
     let mut coins: Vec<u64> = vec![];
 
     let mut explore_heap = BinaryHeap::new();
-
-    // todo: proper populate
-    for i in 0..35 {
-        for j in 0..35 {
-            let area = Area { posX: i * 10, posY: j * 10, sizeX: 10, sizeY: 10 };
-            let result = explore(&client, &base_url, &area).await?;
-            if result.amount > 0 {
-                explore_heap.push(result);
-            }
-        }
-    }
+    let area = Area { posX: 0, posY: 0, sizeX: 3500, sizeY: 3500};
+    let explore = client.explore(&area).await?;
+    explore_heap.push(explore);
 
     let mut license: Option<License> = None;
     let mut dig_heap: BinaryHeap<PendingDig> = BinaryHeap::new();
     let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
 
     loop {
+        println!("explore size {}", explore_heap.len());
         match logic(
-            &base_url,
             &client,
             &mut coins,
             &license,
@@ -307,7 +194,10 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
             &mut treasure_heap
         ).await {
             Ok(used_license) => license = used_license,
-            Err(e) => println!("error {}", e)
+            Err(e) => {
+                // println!("licenses {:#?}", get_licenses(&client, &base_url).await?);
+                println!("error {}", e)
+            }
         }
     }
 
@@ -316,78 +206,27 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
 
 
 #[test]
-fn test_area_divide() {
-    let a = Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 };
-
-    let division = a.divide();
-
-    let items = division.iter().map(|a| a.hash()).collect::<Vec<String>>();
-
-    assert_eq!(
-        vec![
-            "[0, 0; 5, 5]",
-            "[5, 0; 5, 5]",
-            "[0, 5; 5, 5]",
-            "[5, 5; 5, 5]"
-        ],
-        items
-    );
-
-    let division2 = division[0].divide();
-
-    let items2 = division2.iter().map(|a| a.hash()).collect::<Vec<String>>();
-
-    assert_eq!(
-        vec![
-            "[0, 0; 3, 3]",
-            "[3, 0; 2, 3]",
-            "[0, 3; 3, 2]",
-            "[3, 3; 2, 2]",
-        ],
-        items2
-    );
-
-    let b = Area { posX: 0, posY: 0, sizeX: 1, sizeY: 2 };
-
-    let items3 = b.divide().iter().map(|a| a.hash()).collect::<Vec<String>>();
-
-    assert_eq!(
-        vec![
-            "[0, 0; 1, 1]",
-            "[0, 1; 1, 1]",
-        ],
-        items3
-    );
-
-    let c = Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1};
-    assert_eq!(
-        c.divide(),
-        vec![c]
-    )
-}
-
-#[test]
 fn test_explore_ord() {
     let mut hp = BinaryHeap::new();
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 100, sizeY: 100 }, amount: 10 });
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 10, sizeY: 10 }, amount: 10 });
     hp.push(Explore { area: Area { posX: 0, posY: 0, sizeX: 1, sizeY: 1 }, amount: 3 });
 
+    assert_eq!(hp.pop().unwrap().area.size(), 1);
     assert_eq!(hp.pop().unwrap().area.size(), 100);
     assert_eq!(hp.pop().unwrap().area.size(), 10000);
-    assert_eq!(hp.pop().unwrap().area.size(), 1);
 }
 
 #[test]
 fn test_dig_ord() {
     let mut hp = BinaryHeap::new();
-    hp.push(PendingDig { x: 3, y: 0, current_depth: 2, remaining: 10 });
     hp.push(PendingDig { x: 1, y: 0, current_depth: 2, remaining: 11 });
+    hp.push(PendingDig { x: 3, y: 0, current_depth: 2, remaining: 10 });
     hp.push(PendingDig { x: 2, y: 0, current_depth: 1, remaining: 10 });
 
     assert_eq!(hp.pop().unwrap().x, 1);
-    assert_eq!(hp.pop().unwrap().x, 2);
     assert_eq!(hp.pop().unwrap().x, 3);
+    assert_eq!(hp.pop().unwrap().x, 2);
 }
 
 #[test]

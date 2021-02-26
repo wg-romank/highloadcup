@@ -187,6 +187,7 @@ dependencies = [
 name = "hlcup"
 version = "0.1.0"
 dependencies = [
+ "rand",
  "reqwest",
  "serde",
  "tokio",
