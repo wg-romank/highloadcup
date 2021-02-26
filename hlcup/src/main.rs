@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 
 // use rand;
 // use rand::distributions::Uniform;
@@ -18,13 +18,13 @@ use dto::*;
 struct PendingDig {
     x: u64,
     y: u64,
-    current_depth: u8,
+    depth: u8,
     remaining: u64
 }
 
 impl PendingDig {
     fn new(x: u64, y: u64, remaining: u64) -> PendingDig {
-        PendingDig { x, y, current_depth: 1, remaining }
+        PendingDig { x, y, depth: 1, remaining }
     }
 
     fn to_dig(&self, license_id: u64) -> Dig {
@@ -32,14 +32,14 @@ impl PendingDig {
             license_id: license_id,
             pos_x: self.x,
             pos_y: self.y,
-            depth: self.current_depth,
+            depth: self.depth,
         }
     }
 
     fn next_level(&self, excavated: u64) -> Option<PendingDig> {
-        if self.current_depth < 10 && self.remaining > excavated {
+        if self.depth < 10 && self.remaining > excavated {
             Some(PendingDig {
-                current_depth: self.current_depth + 1,
+                depth: self.depth + 1,
                 remaining: self.remaining - excavated,
                 ..*self })
         } else {
@@ -51,8 +51,8 @@ impl PendingDig {
 
 impl Ord for PendingDig {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.remaining * self.current_depth as u64)
-            .cmp(&(other.remaining * other.current_depth as u64))
+        (self.remaining * self.depth as u64)
+            .cmp(&(other.remaining * other.depth as u64))
     }
 }
 
@@ -85,6 +85,7 @@ async fn logic(
     client: &Client,
     coins: &mut Vec<u64>,
     license: &Option<License>,
+    digging_coordinates: &mut HashSet<(u64, u64)>,
     explore_heap: &mut BinaryHeap<Explore>,
     dig_heap: &mut BinaryHeap<PendingDig>,
     treasure_heap: &mut BinaryHeap<Treasure>,
@@ -98,14 +99,24 @@ async fn logic(
         }
     }
     if let Some(ar) = explore_heap.pop() {
-        // println!("explore {:#?}", ar);
-        for a in ar.area.divide().into_iter() {
-            let res = client.explore(&a).await?;
-
-            if res.amount > 0 && res.area.size() == 1 {
-                dig_heap.push(PendingDig::new(ar.area.pos_x, ar.area.pos_y, ar.amount));
-            } else if res.amount > 0 {
-                explore_heap.push(res);
+        // todo: if we have total we do not need to get latest from here
+        // since it can be computed given previous results
+        match ar.area.size() {
+            1 => {
+                let x = ar.area.pos_x;
+                let y = ar.area.pos_y;
+                if !digging_coordinates.contains(&(x, y)) {
+                    digging_coordinates.insert((x, y));
+                    dig_heap.push(PendingDig::new(x, y, ar.amount));
+                } else {
+                    panic!("digging twice at {} {}", x, y);
+                }
+            }
+            _ => for a in ar.area.divide().into_iter() {
+                let res = client.explore(&a).await?;
+                if res.amount > 0 {
+                    explore_heap.push(res);
+                }
             }
         }
     }
@@ -116,13 +127,14 @@ async fn logic(
             if let Some(pending_dig) = dig_heap.pop() {
                 let treasure = client.dig(&pending_dig.to_dig(lic.id)).await?;
 
-                if let Some(next_level) = pending_dig.next_level(treasure.len() as u64) {
+                let treasures_count = treasure.len() as u64;
+                if let Some(next_level) = pending_dig.next_level(treasures_count) {
                     dig_heap.push(next_level);
                 }
 
-                if treasure.len() > 0 {
+                if treasures_count > 0 {
                     treasure_heap.push(Treasure {
-                        depth: pending_dig.current_depth,
+                        depth: pending_dig.depth,
                         treasures: treasure,
                     });
                 }
@@ -181,11 +193,14 @@ async fn main() ->  Result<(), DescriptiveError> {
     let mut dig_heap: BinaryHeap<PendingDig> = BinaryHeap::new();
     let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
 
+    let mut hs = HashSet::new();
+
     loop {
         match logic(
             &client,
             &mut coins,
             &license,
+            &mut hs,
             &mut explore_heap,
             &mut dig_heap,
             &mut treasure_heap
@@ -214,9 +229,9 @@ fn test_explore_ord() {
 #[test]
 fn test_dig_ord() {
     let mut hp = BinaryHeap::new();
-    hp.push(PendingDig { x: 1, y: 0, current_depth: 2, remaining: 11 });
-    hp.push(PendingDig { x: 3, y: 0, current_depth: 2, remaining: 10 });
-    hp.push(PendingDig { x: 2, y: 0, current_depth: 1, remaining: 10 });
+    hp.push(PendingDig { x: 1, y: 0, depth: 2, remaining: 11 });
+    hp.push(PendingDig { x: 3, y: 0, depth: 2, remaining: 10 });
+    hp.push(PendingDig { x: 2, y: 0, depth: 1, remaining: 10 });
 
     assert_eq!(hp.pop().unwrap().x, 1);
     assert_eq!(hp.pop().unwrap().x, 3);

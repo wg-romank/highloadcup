@@ -12,37 +12,79 @@ pub struct Area {
 
 impl Area {
     pub fn size(&self) -> u64 { self.size_x * self.size_y }
+    fn split_x(&self) -> Vec<Area> {
+        if self.size_x > 2 {
+            let half_x = (self.size_x as f64 / 2.).floor() as u64;
+
+            let mut result = vec![];
+            if half_x > 0 && self.size_x > half_x + 1 {
+                result.push(
+                    Area {
+                        pos_x: self.pos_x,
+                        pos_y: self.pos_y,
+                        size_x: half_x,
+                        size_y: self.size_y
+                    }
+                );
+                result.push(
+                    Area {
+                        pos_x: self.pos_x + half_x + 1,
+                        pos_y: self.pos_y,
+                        size_x: self.size_x - half_x - 1,
+                        size_y: self.size_y,
+                    }
+                )
+            }
+
+            result
+        } else if self.size_x == 2 {
+            vec![
+                Area { pos_x: self.pos_x, pos_y: self.pos_y, size_x: 1, size_y: 1 },
+                Area { pos_x: self.pos_x + 1, pos_y: self.pos_y, size_x: 1, size_y: 1 },
+            ]
+        } else {
+            vec![*self]
+        }
+    }
+
+    fn split_y(&self) -> Vec<Area> {
+        if self.size_y > 2 {
+            let half_y = (self.size_y as f64 / 2.).floor() as u64;
+
+            let mut result = vec![];
+            if half_y > 0 && self.size_y > half_y + 1 {
+                result.push(
+                    Area {
+                        pos_x: self.pos_x,
+                        pos_y: self.pos_y,
+                        size_x: self.size_x,
+                        size_y: half_y
+                    }
+                );
+                result.push(
+                    Area {
+                        pos_x: self.pos_x,
+                        pos_y: self.pos_y + half_y + 1,
+                        size_x: self.size_x,
+                        size_y: self.size_y - half_y - 1,
+                    }
+                )
+            }
+
+            result
+        } else if self.size_y == 2 {
+            vec![
+                Area { pos_x: self.pos_x, pos_y: self.pos_y, size_x: 1, size_y: 1 },
+                Area { pos_x: self.pos_x, pos_y: self.pos_y + 1, size_x: 1, size_y: 1 },
+                // Area { pos_x: self.pos_x, pos_y: self.pos_y + 2, size_x: 1, size_y: 1 }
+            ]
+        } else {
+            vec![*self]
+        }
+    }
+
     pub fn divide(&self) -> Vec<Area> {
-        let half_x = (self.size_x as f64 / 2.).ceil() as u64;
-        let half_y = (self.size_y as f64 / 2.).ceil() as u64;
-
-        let mut result = vec![];
-        if half_x > 0 || half_y > 0 {
-            result.push(
-                Area { pos_x: self.pos_x, pos_y: self.pos_y, size_x: half_x, size_y: half_y }
-            );
-        }
-        if half_x > 0 && self.size_x - half_x > 0 {
-            result.push(
-                Area { pos_x: self.pos_x + half_x, pos_y: self.pos_y, size_x: self.size_x - half_x, size_y: half_y }
-            );
-        }
-        if half_y > 0 && self.size_y - half_y > 0 {
-            result.push(
-                Area { pos_x: self.pos_x, pos_y: self.pos_y + half_y, size_x: half_x, size_y: self.size_y - half_y }
-            );
-        }
-        if half_x > 0 && self.size_x - half_x > 0 && half_y > 0 && self.size_y - half_y > 0 {
-            result.push(
-                Area { pos_x: self.pos_x + half_x, pos_y: self.pos_y + half_y, size_x: self.size_x - half_x, size_y: self.size_y - half_y }
-            );
-        };
-
-        if result.is_empty() {
-            result.push(*self);
-        }
-
-        result
+        self.split_x().into_iter().flat_map(|a| a.split_y()).collect::<Vec<Area>>()
     }
 }
 
@@ -99,9 +141,9 @@ fn test_area_divide() {
     assert_eq!(
         vec![
             "[0, 0; 5, 5]",
-            "[5, 0; 5, 5]",
-            "[0, 5; 5, 5]",
-            "[5, 5; 5, 5]"
+            "[0, 6; 5, 4]",
+            "[6, 0; 4, 5]",
+            "[6, 6; 4, 4]"
         ],
         items
     );
@@ -112,9 +154,9 @@ fn test_area_divide() {
 
     assert_eq!(
         vec![
-            "[0, 0; 3, 3]",
-            "[3, 0; 2, 3]",
-            "[0, 3; 3, 2]",
+            "[0, 0; 2, 2]",
+            "[0, 3; 2, 2]",
+            "[3, 0; 2, 2]",
             "[3, 3; 2, 2]",
         ],
         items2

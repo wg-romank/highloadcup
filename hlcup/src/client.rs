@@ -87,7 +87,10 @@ impl Client {
         match response.status() {
             reqwest::StatusCode::OK => Ok(response.json::<Vec<String>>().await?),
             reqwest::StatusCode::NOT_FOUND => Ok(vec![]),
-            status => Err(DescriptiveError::new("dig",status, response.text().await?)),
+            status => Err(DescriptiveError::new(
+                "dig",
+                status,
+                format!("{} {} {}", dig.pos_x, dig.pos_y, dig.depth) + &response.text().await?)),
         }
     }
 
