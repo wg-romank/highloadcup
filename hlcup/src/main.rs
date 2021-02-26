@@ -1,8 +1,9 @@
-use rand;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use rand::distributions::Uniform;
-use rand::{thread_rng, Rng};
+
+// use rand;
+// use rand::distributions::Uniform;
+// use rand::{thread_rng, Rng};
 
 mod client;
 mod dto;
@@ -92,7 +93,7 @@ async fn logic(
         for treasure in pending_cash.treasures.into_iter() {
             match client.cash(treasure.clone()).await {
                 Ok(got_coins) => coins.extend(got_coins),
-                Err(e) => treasure_heap.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]}),
+                _ => treasure_heap.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]}),
             };
         }
     }
@@ -200,8 +201,6 @@ async fn main() ->  Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
-    Ok(())
 }
 
 

@@ -44,10 +44,6 @@ impl Area {
 
         result
     }
-
-    fn hash(&self) -> String {
-        format!("[{}, {}; {}, {}]", self.pos_x, self.pos_y, self.size_x, self.size_y)
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -90,11 +86,15 @@ pub struct Dig {
 
 #[test]
 fn test_area_divide() {
+    fn hash(area: &Area) -> String {
+        format!("[{}, {}; {}, {}]", area.pos_x, area.pos_y, area.size_x, area.size_y)
+    }
+
     let a = Area { pos_x: 0, pos_y: 0, size_x: 10, size_y: 10 };
 
     let division = a.divide();
 
-    let items = division.iter().map(|a| a.hash()).collect::<Vec<String>>();
+    let items = division.iter().map(|a| hash(a)).collect::<Vec<String>>();
 
     assert_eq!(
         vec![
@@ -108,7 +108,7 @@ fn test_area_divide() {
 
     let division2 = division[0].divide();
 
-    let items2 = division2.iter().map(|a| a.hash()).collect::<Vec<String>>();
+    let items2 = division2.iter().map(|a| hash(a)).collect::<Vec<String>>();
 
     assert_eq!(
         vec![
@@ -122,7 +122,7 @@ fn test_area_divide() {
 
     let b = Area { pos_x: 0, pos_y: 0, size_x: 1, size_y: 2 };
 
-    let items3 = b.divide().iter().map(|a| a.hash()).collect::<Vec<String>>();
+    let items3 = b.divide().iter().map(|a| hash(a)).collect::<Vec<String>>();
 
     assert_eq!(
         vec![

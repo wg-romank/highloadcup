@@ -44,14 +44,6 @@ impl Client {
             .await?)
     }
 
-    pub async fn get_licenses(&self) -> Response<Vec<License>> {
-        Ok(self.client.get(&self.licenses_url)
-            .send()
-            .await?
-            .json::<Vec<License>>()
-            .await?)
-    }
-
     pub async fn dig(&self, dig: &Dig) -> Response<Vec<String>> {
         let response = self.client.post(&self.dig_url)
             .json(dig)
@@ -61,7 +53,7 @@ impl Client {
         match response.status() {
             reqwest::StatusCode::OK => Ok(response.json::<Vec<String>>().await?),
             reqwest::StatusCode::NOT_FOUND => Ok(vec![]),
-            err => Ok(response.json::<Vec<String>>().await?),
+            _ => Ok(response.json::<Vec<String>>().await?),
         }
     }
 
