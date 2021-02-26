@@ -9,7 +9,8 @@ mod client;
 mod dto;
 
 use client::Client;
-use client::Response;
+use client::ClientResponse;
+use client::DescriptiveError;
 
 use dto::*;
 
@@ -87,7 +88,7 @@ async fn logic(
     explore_heap: &mut BinaryHeap<Explore>,
     dig_heap: &mut BinaryHeap<PendingDig>,
     treasure_heap: &mut BinaryHeap<Treasure>,
-) -> Response<Option<License>> {
+) -> ClientResponse<Option<License>> {
     while let Some(pending_cash) = treasure_heap.pop() {
         println!("cash {:#?}", pending_cash);
         for treasure in pending_cash.treasures.into_iter() {
@@ -148,9 +149,9 @@ async fn logic(
 }
 
 #[tokio::main(worker_threads = 1)]
-async fn main() ->  Result<(), Box<dyn std::error::Error>> {
+async fn main() ->  Result<(), DescriptiveError> {
     println!("Started");
-    let address = std::env::var("ADDRESS")?;
+    let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
     let client = Client::new(&address);
 
     // // testing explore
