@@ -90,7 +90,6 @@ async fn logic(
     treasure_heap: &mut BinaryHeap<Treasure>,
 ) -> ClientResponse<Option<License>> {
     while let Some(pending_cash) = treasure_heap.pop() {
-        println!("cash {:#?}", pending_cash);
         for treasure in pending_cash.treasures.into_iter() {
             match client.cash(treasure.clone()).await {
                 Ok(got_coins) => coins.extend(got_coins),
@@ -114,12 +113,9 @@ async fn logic(
     // todo: ordering
     let used_license = match license {
         Some(lic) if lic.dig_used < lic.dig_allowed => {
-            // println!("license {:#?}", lic);
             if let Some(pending_dig) = dig_heap.pop() {
-                // println!("dig {:#?}", pending_dig);
                 let treasure = client.dig(&pending_dig.to_dig(lic.id)).await?;
 
-                println!("treasure {:#?}", treasure);
                 if let Some(next_level) = pending_dig.next_level(treasure.len() as u64) {
                     dig_heap.push(next_level);
                 }
@@ -186,7 +182,6 @@ async fn main() ->  Result<(), DescriptiveError> {
     let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
 
     loop {
-        println!("explore size {}", explore_heap.len());
         match logic(
             &client,
             &mut coins,
@@ -197,7 +192,6 @@ async fn main() ->  Result<(), DescriptiveError> {
         ).await {
             Ok(used_license) => license = used_license,
             Err(e) => {
-                // println!("licenses {:#?}", get_licenses(&client, &base_url).await?);
                 println!("error {}", e)
             }
         }

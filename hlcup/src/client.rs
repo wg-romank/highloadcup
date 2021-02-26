@@ -32,6 +32,14 @@ pub struct DescriptiveError {
     message: String
 }
 
+impl DescriptiveError {
+    fn new(endpoint: &str, status_code: reqwest::StatusCode, message: String) -> DescriptiveError {
+        DescriptiveError {
+            message: format!("{} /{}: {}", status_code, endpoint, message)
+        }
+    }
+}
+
 impl std::convert::From<Error> for DescriptiveError {
     fn from(e: Error) -> Self {
         DescriptiveError { message: format!("{}", e) }
@@ -51,7 +59,10 @@ impl Client {
                 .send()
                 .await?;
 
-        Ok(response.json::<Explore>().await?)
+        match response.status() {
+            reqwest::StatusCode::OK => Ok(response.json::<Explore>().await?),
+            status => Err(DescriptiveError::new("explore",status, response.text().await?)),
+        }
     }
 
     pub async fn get_license(&self, coins: Vec<u64>) -> ClientResponse<License> {
@@ -60,7 +71,11 @@ impl Client {
             .send()
             .await?;
 
-        Ok(response.json::<License>().await?)
+        match response.status() {
+            reqwest::StatusCode::OK => Ok(response.json::<License>().await?),
+            status => Err(DescriptiveError::new("license",status, response.text().await?)),
+        }
+
     }
 
     pub async fn dig(&self, dig: &Dig) -> ClientResponse<Vec<String>> {
@@ -72,7 +87,7 @@ impl Client {
         match response.status() {
             reqwest::StatusCode::OK => Ok(response.json::<Vec<String>>().await?),
             reqwest::StatusCode::NOT_FOUND => Ok(vec![]),
-            _ => Ok(response.json::<Vec<String>>().await?),
+            status => Err(DescriptiveError::new("dig",status, response.text().await?)),
         }
     }
 
@@ -82,6 +97,9 @@ impl Client {
             .send()
             .await?;
 
-        Ok(response.json::<Vec<u64>>().await?)
+        match response.status() {
+            reqwest::StatusCode::OK => Ok(response.json::<Vec<u64>>().await?),
+            status => Err(DescriptiveError::new("cash",status, response.text().await?)),
+        }
     }
 }
