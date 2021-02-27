@@ -94,7 +94,7 @@ async fn logic(
 ) -> ClientResponse<Option<License>> {
     while let Some(pending_cash) = treasure_heap.pop() {
         for treasure in pending_cash.treasures.into_iter() {
-            match client.cash(treasure.clone()).await {
+            match client.cash(pending_cash.depth, treasure.clone()).await {
                 Ok(got_coins) => coins.extend(got_coins),
                 _ => treasure_heap.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]}),
             };
@@ -187,9 +187,9 @@ async fn init_state(client: &mut Client, areas: Vec<Area>) -> ClientResponse<Bin
     Ok(explore_heap)
 }
 
-async fn _main(address: &str, area: Area) -> ClientResponse<()> {
+async fn _main(address: &str, areas: Vec<Area>) -> ClientResponse<()> {
     let mut client = Client::new(&address);
-    let mut explore_heap = init_state(&mut client, vec![area]).await?;
+    let mut explore_heap = init_state(&mut client, areas).await?;
 
     // multiple producers, single consumer? for coins
     let mut coins: Vec<u64> = vec![];
@@ -239,7 +239,11 @@ async fn main() ->  Result<(), DescriptiveError> {
             let address_str = address.clone();
             tokio::spawn(async move {
                 let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(&address_str, area).await
+                _main(&address_str, area
+                    .divide()
+                    .iter()
+                    .flat_map(|a| a.divide()).collect()
+                ).await
             })
         })
     ).await;

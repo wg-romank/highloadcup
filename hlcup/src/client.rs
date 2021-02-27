@@ -2,7 +2,7 @@ use crate::dto::*;
 
 use reqwest::Error;
 use reqwest::StatusCode;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use histogram::Histogram;
 use std::time::Instant;
 
@@ -19,7 +19,9 @@ pub struct Stats {
     total: f64,
     dig: EpMetric,
     dig_found: f64,
+    dig_found_per_depth: HashMap<u8, (f64, f64)>,
     cash: EpMetric,
+    cash_found_per_depth: HashMap<u8, u64>,
     license: EpMetric,
     explore: EpMetric,
 }
@@ -54,13 +56,13 @@ impl std::fmt::Display for EpMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} / {}, error rate {:.3}\n", self.total, self.err, self.err / self.total)?;
         // print percentiles from the histogram
-        write!(f, "Percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
+        write!(f, "- percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
                  self.histogram.percentile(50.0).unwrap(),
                  self.histogram.percentile(90.0).unwrap(),
                  self.histogram.percentile(99.0).unwrap(),
                  self.histogram.percentile(99.9).unwrap(),
         )?;
-        write!(f, "Latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
+        write!(f, "- latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
                  self.histogram.minimum().unwrap(),
                  self.histogram.mean().unwrap(),
                  self.histogram.maximum().unwrap(),
@@ -77,8 +79,23 @@ impl std::fmt::Display for Stats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "total: {}\n", self.total)?;
         write!(f, "explore: {}", self.explore)?;
+
         write!(f, "digs: {}found {}, found rate {}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
+        let mut dig_stats = self.dig_found_per_depth
+            .iter()
+            .map(|(k, v)| (*k, format!("{}:{:.3}", k, v.1 / v.0)))
+            .collect::<Vec<(u8, String)>>();
+        dig_stats.sort_by(|a, b| a.0.cmp(&b.0));
+        write!(f, "rate at depth {}\n", dig_stats.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", "))?;
+
         write!(f, "cash: {}", self.cash)?;
+        let mut cash_stats = self.cash_found_per_depth
+            .iter()
+            .map(|(k, v)| (*k, format!("{}:{}", k, v)))
+            .collect::<Vec<(u8, String)>>();
+        cash_stats.sort_by(|a, b| a.0.cmp(&b.0));
+        write!(f, "cash at depth {}\n", cash_stats.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", "))?;
+
         write!(f, "license: {}", self.license)
     }
 }
@@ -88,23 +105,28 @@ impl Stats {
         total: 0.,
         dig: EpMetric::new(),
         dig_found: 0.,
+        dig_found_per_depth: HashMap::new(),
         cash: EpMetric::new(),
+        cash_found_per_depth: HashMap::new(),
         license: EpMetric::new(),
         explore: EpMetric::new(),
     } }
 
-    fn record_dig(&mut self, duration: u64, found: bool, err: Option<StatusCode>) {
+    fn record_dig(&mut self, duration: u64, depth: u8, found: bool, err: Option<StatusCode>) {
         self.total += 1.;
         self.dig.inc(duration, err);
 
+        self.dig_found_per_depth.entry(depth).or_insert((0., 0.)).0 += 1.;
         if found {
-            self.dig_found += 1.
+            self.dig_found += 1.;
+            self.dig_found_per_depth.entry(depth).or_insert((0., 0.)).1 += 1.;
         }
     }
 
-    fn record_cash(&mut self, duration: u64, err: Option<StatusCode>) {
+    fn record_cash(&mut self, duration: u64, depth: u8, amount: u64, err: Option<StatusCode>) {
         self.total += 1.;
         self.cash.inc(duration, err);
+        *self.cash_found_per_depth.entry(depth).or_insert(0) += amount;
     }
 
     fn record_license(&mut self, duration: u64, err: Option<StatusCode>) {
@@ -213,15 +235,15 @@ impl Client {
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_dig(elapsed, true, None);
+                self.stats.record_dig(elapsed, dig.depth, true, None);
                 Ok(response.json::<Vec<String>>().await?)
             },
             reqwest::StatusCode::NOT_FOUND => {
-                self.stats.record_dig(elapsed, false, None);
+                self.stats.record_dig(elapsed, dig.depth, false, None);
                 Ok(vec![])
             },
             status => {
-                self.stats.record_dig(elapsed, false, Some(status));
+                self.stats.record_dig(elapsed, dig.depth, false, Some(status));
                 Err(DescriptiveError::new(
                     "dig",
                     status,
@@ -230,7 +252,7 @@ impl Client {
         }
     }
 
-    pub async fn cash(&mut self, treasure: String) -> ClientResponse<Vec<u64>> {
+    pub async fn cash(&mut self, depth: u8, treasure: String) -> ClientResponse<Vec<u64>> {
         let now = Instant::now();
         let response = self.client.post(&self.cash_url)
             .json(&treasure)
@@ -240,11 +262,12 @@ impl Client {
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_cash(elapsed, None);
-                Ok(response.json::<Vec<u64>>().await?)
+                let coins = response.json::<Vec<u64>>().await?;
+                self.stats.record_cash(elapsed, depth, coins.len() as u64, None);
+                Ok(coins)
             },
             status => {
-                self.stats.record_cash(elapsed, Some(status));
+                self.stats.record_cash(elapsed, depth, 0, Some(status));
                 Err(DescriptiveError::new("cash",status, response.text().await?))
             },
         }
