@@ -12,7 +12,7 @@ pub struct Area {
 
 impl Area {
     pub fn size(&self) -> u64 { self.size_x * self.size_y }
-    fn split_x(&self) -> Vec<Area> {
+    pub fn split_x(&self) -> Vec<Area> {
         if self.size_x > 2 {
             let half_x = (self.size_x as f64 / 2.).floor() as u64;
 
@@ -47,7 +47,7 @@ impl Area {
         }
     }
 
-    fn split_y(&self) -> Vec<Area> {
+    pub fn split_y(&self) -> Vec<Area> {
         if self.size_y > 2 {
             let half_y = (self.size_y as f64 / 2.).floor() as u64;
 

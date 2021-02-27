@@ -84,7 +84,7 @@ impl PartialOrd for Treasure {
 }
 
 async fn logic(
-    client: &Client,
+    client: &mut Client,
     coins: &mut Vec<u64>,
     license: &Option<License>,
     digging_coordinates: &mut HashSet<(u64, u64)>,
@@ -114,10 +114,23 @@ async fn logic(
                     panic!("digging twice at {} {}", x, y);
                 }
             }
-            _ => for a in ar.area.divide().into_iter() {
-                let res = client.explore(&a).await?;
-                if res.amount > 0 {
-                    explore_heap.push(res);
+            _ => {
+                let total = ar.amount;
+                let mut cum = 0;
+                let divided = ar.area.divide();
+                let ll = divided.len();
+                for (idx, a) in divided.into_iter().enumerate() {
+                    let res = client.explore(&a).await?;
+                    if res.amount > 0 {
+                        cum += res.amount;
+                        explore_heap.push(res);
+                    }
+
+                    if idx + 1 < ll {
+                        if cum > (total - cum) {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -158,7 +171,7 @@ async fn logic(
     Ok(used_license)
 }
 
-async fn init_state(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
+async fn init_state(client: &mut Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
     let mut errors = areas.clone();
     let mut explore_heap = BinaryHeap::new();
     while let Some(a) = errors.pop() {
@@ -175,8 +188,8 @@ async fn init_state(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryH
 }
 
 async fn _main(address: &str, area: Area) -> ClientResponse<()> {
-    let client = Client::new(&address);
-    let mut explore_heap = init_state(&client, vec![area]).await?;
+    let mut client = Client::new(&address);
+    let mut explore_heap = init_state(&mut client, vec![area]).await?;
 
     // multiple producers, single consumer? for coins
     let mut coins: Vec<u64> = vec![];
@@ -186,9 +199,11 @@ async fn _main(address: &str, area: Area) -> ClientResponse<()> {
 
     let mut hs = HashSet::new();
 
+    let mut iteration = 0;
+
     loop {
         match logic(
-            &client,
+            &mut client,
             &mut coins,
             &license,
             &mut hs,
@@ -200,6 +215,11 @@ async fn _main(address: &str, area: Area) -> ClientResponse<()> {
             Err(e) => {
                 println!("error {}", e)
             }
+        };
+
+        iteration += 1;
+        if iteration % 1000 == 0 {
+            println!("{}", client.stats);
         }
     }
 }
