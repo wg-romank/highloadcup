@@ -3,6 +3,8 @@ use crate::dto::*;
 use reqwest::Error;
 use reqwest::StatusCode;
 use std::collections::HashSet;
+use histogram::Histogram;
+use std::time::Instant;
 
 pub struct Client {
     client: reqwest::Client,
@@ -26,15 +28,18 @@ pub struct EpMetric {
     total: f64,
     err: f64,
     err_codes: HashSet<String>,
+    histogram: Histogram,
 }
 
 impl EpMetric {
     fn new() -> EpMetric {
-        EpMetric { total: 0., err: 0., err_codes: HashSet::new() }
+        EpMetric { total: 0., err: 0., err_codes: HashSet::new(), histogram: Histogram::new() }
     }
 
-    fn inc(&mut self, err: Option<StatusCode>) {
+    fn inc(&mut self, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
+        self.histogram.increment(duration)
+            .map_err(|e| println!("hist err: {}", e));
         match err {
             Some(status) => {
                 self.err += 1.;
@@ -48,6 +53,19 @@ impl EpMetric {
 impl std::fmt::Display for EpMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} / {}, error rate {:.3}\n", self.total, self.err, self.err / self.total)?;
+        // print percentiles from the histogram
+        write!(f, "Percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
+                 self.histogram.percentile(50.0).unwrap(),
+                 self.histogram.percentile(90.0).unwrap(),
+                 self.histogram.percentile(99.0).unwrap(),
+                 self.histogram.percentile(99.9).unwrap(),
+        )?;
+        write!(f, "Latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
+                 self.histogram.minimum().unwrap(),
+                 self.histogram.mean().unwrap(),
+                 self.histogram.maximum().unwrap(),
+                 self.histogram.stddev().unwrap(),
+        )?;
         if !self.err_codes.is_empty() {
             write!(f, "codes {}\n", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
         }
@@ -75,28 +93,28 @@ impl Stats {
         explore: EpMetric::new(),
     } }
 
-    fn record_dig(&mut self, found: bool, err: Option<StatusCode>) {
+    fn record_dig(&mut self, duration: u64, found: bool, err: Option<StatusCode>) {
         self.total += 1.;
-        self.dig.inc(err);
+        self.dig.inc(duration, err);
 
         if found {
             self.dig_found += 1.
         }
     }
 
-    fn record_cash(&mut self, err: Option<StatusCode>) {
+    fn record_cash(&mut self, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.cash.inc(err);
+        self.cash.inc(duration, err);
     }
 
-    fn record_license(&mut self, err: Option<StatusCode>) {
+    fn record_license(&mut self, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.license.inc(err);
+        self.license.inc(duration, err);
     }
 
-    fn record_explore(&mut self, err: Option<StatusCode>) {
+    fn record_explore(&mut self, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.explore.inc(err);
+        self.explore.inc(duration, err);
     }
 }
 
@@ -145,36 +163,40 @@ impl std::fmt::Display for DescriptiveError {
 
 impl Client {
     pub async fn explore(&mut self, area: &Area) -> ClientResponse<Explore> {
+        let now = Instant::now();
         let response = self.client.post(&self.explore_url)
                 .json(area)
                 .send()
                 .await?;
+        let elapsed = now.elapsed().as_micros() as u64;
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_explore(None);
+                self.stats.record_explore(elapsed, None);
                 Ok(response.json::<Explore>().await?)
             },
             status => {
-                self.stats.record_explore(Some(status));
+                self.stats.record_explore(elapsed, Some(status));
                 Err(DescriptiveError::new("explore",status, response.text().await?))
             },
         }
     }
 
     pub async fn get_license(&mut self, coins: Vec<u64>) -> ClientResponse<License> {
+        let now = Instant::now();
         let response = self.client.post(&self.licenses_url)
             .json(&coins)
             .send()
             .await?;
+        let elapsed = now.elapsed().as_micros() as u64;
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_license(None);
+                self.stats.record_license(elapsed, None);
                 Ok(response.json::<License>().await?)
             },
             status => {
-                self.stats.record_license(Some(status));
+                self.stats.record_license(elapsed, Some(status));
                 Err(DescriptiveError::new("license",status, response.text().await?))
             },
         }
@@ -182,22 +204,24 @@ impl Client {
     }
 
     pub async fn dig(&mut self, dig: &Dig) -> ClientResponse<Vec<String>> {
+        let now = Instant::now();
         let response = self.client.post(&self.dig_url)
             .json(dig)
             .send()
             .await?;
+        let elapsed = now.elapsed().as_micros() as u64;
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_dig(true, None);
+                self.stats.record_dig(elapsed, true, None);
                 Ok(response.json::<Vec<String>>().await?)
             },
             reqwest::StatusCode::NOT_FOUND => {
-                self.stats.record_dig(false, None);
+                self.stats.record_dig(elapsed, false, None);
                 Ok(vec![])
             },
             status => {
-                self.stats.record_dig(false, Some(status));
+                self.stats.record_dig(elapsed, false, Some(status));
                 Err(DescriptiveError::new(
                     "dig",
                     status,
@@ -207,18 +231,20 @@ impl Client {
     }
 
     pub async fn cash(&mut self, treasure: String) -> ClientResponse<Vec<u64>> {
+        let now = Instant::now();
         let response = self.client.post(&self.cash_url)
             .json(&treasure)
             .send()
             .await?;
+        let elapsed = now.elapsed().as_micros() as u64;
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_cash(None);
+                self.stats.record_cash(elapsed, None);
                 Ok(response.json::<Vec<u64>>().await?)
             },
             status => {
-                self.stats.record_cash(Some(status));
+                self.stats.record_cash(elapsed, Some(status));
                 Err(DescriptiveError::new("cash",status, response.text().await?))
             },
         }
