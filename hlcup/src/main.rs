@@ -204,9 +204,9 @@ async fn _main(address: &str, area: Area) -> ClientResponse<()> {
     }
 }
 
-#[tokio::main(worker_threads = 2)]
+#[tokio::main(worker_threads = 1)]
 async fn main() ->  Result<(), DescriptiveError> {
-    let n_threads = 2;
+    let n_threads = 1;
     println!("Started thread = {}", n_threads);
 
     let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
