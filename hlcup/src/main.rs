@@ -156,7 +156,7 @@ async fn logic(
     Ok(used_license)
 }
 
-async fn init_state_helper(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
+async fn init_state(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
     let mut errors = areas.clone();
     let mut explore_heap = BinaryHeap::new();
     while let Some(a) = errors.pop() {
@@ -172,36 +172,9 @@ async fn init_state_helper(client: &Client, areas: Vec<Area>) -> ClientResponse<
     Ok(explore_heap)
 }
 
-async fn init_state(client: &Client, w: u64, h: u64) -> ClientResponse<BinaryHeap<Explore>> {
-    // let mut rng = thread_rng();
-    // let dist = Uniform::new(0, 3400);
-
-    // for i in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100].iter() {
-    //     for _ in 0..10 {
-    //         let x = rng.sample(dist);
-    //         let y = rng.sample(dist);
-    //
-    //         let area = Area { pos_x: x, pos_y: y, size_x: *i as u64, size_y: *i as u64};
-    //
-    //         match client.explore(&area).await {
-    //             Ok(r) => explore_heap.push(r),
-    //             Err(e) => println!("({}, {}); {} error {}", x, y, i, e),
-    //         }
-    //     }
-    // }
-
-    let area = Area { pos_x: 0, pos_y: 0, size_x: w, size_y: h };
-
-    init_state_helper(&client, vec![area]).await
-}
-
-#[tokio::main(worker_threads = 1)]
-async fn main() ->  Result<(), DescriptiveError> {
-    println!("Started");
-    let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
+async fn _main(address: &str, area: Area) -> ClientResponse<()> {
     let client = Client::new(&address);
-
-    let mut explore_heap = init_state(&client, 3500, 3500).await?;
+    let mut explore_heap = init_state(&client, vec![area]).await?;
 
     // multiple producers, single consumer? for coins
     let mut coins: Vec<u64> = vec![];
@@ -227,6 +200,22 @@ async fn main() ->  Result<(), DescriptiveError> {
             }
         }
     }
+}
+
+#[tokio::main(worker_threads = 1)]
+async fn main() ->  Result<(), DescriptiveError> {
+    println!("Started");
+    let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
+    let w = 3500;
+    let h = 3500;
+
+    let area = Area { pos_x: 0, pos_y: 0, size_x: w, size_y: h };
+
+    tokio::spawn(async move {
+        _main(&address, area).await
+    }).await;
+
+    Ok(())
 }
 
 
