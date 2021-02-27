@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 
+use futures::future::join_all;
+
 // use rand;
 // use rand::distributions::Uniform;
 // use rand::{thread_rng, Rng};
@@ -202,18 +204,25 @@ async fn _main(address: &str, area: Area) -> ClientResponse<()> {
     }
 }
 
-#[tokio::main(worker_threads = 1)]
+#[tokio::main(worker_threads = 2)]
 async fn main() ->  Result<(), DescriptiveError> {
-    println!("Started");
+    let n_threads = 2;
+    println!("Started thread = {}", n_threads);
+
     let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
-    let w = 3500;
+
+    let w = 3500 / n_threads;
     let h = 3500;
 
-    let area = Area { pos_x: 0, pos_y: 0, size_x: w, size_y: h };
-
-    tokio::spawn(async move {
-        _main(&address, area).await
-    }).await;
+    join_all(
+        (0..n_threads).map(|i| {
+            let address_str = address.clone();
+            tokio::spawn(async move {
+                let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
+                _main(&address_str, area).await
+            })
+        })
+    ).await;
 
     Ok(())
 }
