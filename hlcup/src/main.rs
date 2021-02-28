@@ -3,6 +3,9 @@ use std::collections::{BinaryHeap, HashSet};
 
 use futures::future::join_all;
 
+use tokio::sync::mpsc;
+use tokio::time::timeout;
+
 // use rand;
 // use rand::distributions::Uniform;
 // use rand::{thread_rng, Rng};
@@ -15,6 +18,7 @@ use client::ClientResponse;
 use client::DescriptiveError;
 
 use dto::*;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingDig {
@@ -83,23 +87,93 @@ impl PartialOrd for Treasure {
     }
 }
 
+struct Accounting {
+    client: Client,
+    rx: mpsc::Receiver<MessageForAccounting>,
+    tx: mpsc::Sender<MessageFromAccounting>,
+    treasures: BinaryHeap<Treasure>,
+    active_licenses: u8,
+    licenses: Vec<License>,
+    coins: Vec<u64>,
+}
+
+enum MessageForAccounting {
+    TreasureToClaim(Treasure),
+    LicenseExpired,
+}
+
+enum MessageFromAccounting {
+    LicenseToUse(License)
+}
+
+impl Accounting {
+    async fn main(&mut self) -> ClientResponse<()> {
+        loop {
+            // todo: recover here
+            timeout(Duration::from_millis(10), self.rx.recv()).await.map(
+                |msg| if let Some(message) = msg {
+                    match message {
+                        MessageForAccounting::TreasureToClaim(tid) => self.treasures.push(tid),
+                        MessageForAccounting::LicenseExpired => self.active_licenses -= 1,
+                    }
+                }
+            );
+
+            match self.step().await {
+                Ok(_) => (),
+                Err(e) => println!("{}", e),
+            };
+        }
+    }
+
+    async fn step(&mut self) -> ClientResponse<()> {
+        while let Some(lic) = self.licenses.pop() {
+            let tx2 = self.tx.clone();
+            tokio::spawn(
+                async move {
+                    tx2.send(MessageFromAccounting::LicenseToUse(lic)).await
+                        .map_err(|e| println!("tx send err {}", e));
+                }
+            );
+        }
+
+        // todo: tradeoff between claiming and getting new licenses
+        if let Some(pending_cash) = self.treasures.pop() {
+            for treasure in pending_cash.treasures.into_iter() {
+                match self.client.cash(pending_cash.depth, treasure.clone()).await {
+                    Ok(got_coins) => self.coins.extend(got_coins),
+                    Err(e) => {
+                        println!("{}", e);
+                        self.treasures.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]})
+                    }
+                };
+            }
+        }
+
+        if self.active_licenses < 10 {
+            let license = if let Some(c) = self.coins.pop() {
+                self.client.get_license(vec![c]).await
+                    .map_err(|e| { self.coins.push(c); e })?
+            } else {
+                self.client.get_license(vec![]).await?
+            };
+            self.licenses.push(license);
+            self.active_licenses += 1;
+        };
+
+        Ok(())
+    }
+}
+
 async fn logic(
     client: &mut Client,
-    coins: &mut Vec<u64>,
+    tx: &mpsc::Sender<MessageForAccounting>,
+    rx: &mut mpsc::Receiver<MessageFromAccounting>,
     license: &Option<License>,
     digging_coordinates: &mut HashSet<(u64, u64)>,
     explore_heap: &mut BinaryHeap<Explore>,
     dig_heap: &mut BinaryHeap<PendingDig>,
-    treasure_heap: &mut BinaryHeap<Treasure>,
 ) -> ClientResponse<Option<License>> {
-    while let Some(pending_cash) = treasure_heap.pop() {
-        for treasure in pending_cash.treasures.into_iter() {
-            match client.cash(pending_cash.depth, treasure.clone()).await {
-                Ok(got_coins) => coins.extend(got_coins),
-                _ => treasure_heap.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]}),
-            };
-        }
-    }
     if let Some(ar) = explore_heap.pop() {
         // todo: if we have total we do not need to get latest from here
         // since it can be computed given previous results
@@ -148,24 +222,37 @@ async fn logic(
                 }
 
                 if treasures_count > 0 {
-                    treasure_heap.push(Treasure {
-                        depth: pending_dig.depth,
-                        treasures: treasure,
-                    });
+                    let tx2 = tx.clone();
+                    tokio::spawn(
+                        async move {
+                            tx2.send(MessageForAccounting::TreasureToClaim(Treasure {
+                                depth: pending_dig.depth,
+                                treasures: treasure,
+                            })).await.map_err(|e| panic!("cannot send treasure {}", e));
+                        }
+                    );
                 }
                 Some(License { dig_used: lic.dig_used + 1, ..*lic })
             } else {
                 Some(*lic)
             }
         }
-        _ => Some(
-            if let Some(c) = coins.pop() {
-                client.get_license(vec![c]).await
-                    .map_err(|e| { coins.push(c); e })?
-            } else {
-                client.get_license(vec![]).await?
+        otherwise => {
+            if otherwise.is_some() {
+                let tx2 = tx.clone();
+                tokio::spawn(
+                    async move {
+                        tx2.send(MessageForAccounting::LicenseExpired).await;
+                    }
+                );
+            };
+            match rx.recv().await {
+                Some(msg) => match msg {
+                    MessageFromAccounting::LicenseToUse(lic) => Some(lic)
+                }
+                None => None
             }
-        ),
+        }
     };
 
     Ok(used_license)
@@ -178,7 +265,7 @@ async fn init_state(client: &mut Client, areas: Vec<Area>) -> ClientResponse<Bin
         match client.explore(&a).await {
             Ok(result) => explore_heap.push(result),
             Err(_) => {
-                println!("area too big {:#?}", a);
+                // println!("area too big {:#?}", a);
                 errors.extend(a.divide())
             }
         }
@@ -187,29 +274,44 @@ async fn init_state(client: &mut Client, areas: Vec<Area>) -> ClientResponse<Bin
     Ok(explore_heap)
 }
 
-async fn _main(address: &str, areas: Vec<Area>) -> ClientResponse<()> {
+async fn _main(address: String, areas: Vec<Area>) -> ClientResponse<()> {
     let mut client = Client::new(&address);
     let mut explore_heap = init_state(&mut client, areas).await?;
 
     // multiple producers, single consumer? for coins
-    let mut coins: Vec<u64> = vec![];
+    let (tx_from_accounting, mut rx_from_accounting) = mpsc::channel(20);
+    let (tx_for_accounting, rx_for_accounting) = mpsc::channel(1000);
     let mut license: Option<License> = None;
     let mut dig_heap: BinaryHeap<PendingDig> = BinaryHeap::new();
-    let mut treasure_heap: BinaryHeap<Treasure> = BinaryHeap::new();
 
     let mut hs = HashSet::new();
 
     let mut iteration = 0;
 
+    tokio::spawn(async move {
+        let addr = address.clone();
+        let mut accounting = Accounting {
+            client: Client::new(&addr),
+            rx: rx_for_accounting,
+            tx: tx_from_accounting,
+            treasures: BinaryHeap::new(),
+            active_licenses: 0,
+            licenses: vec![],
+            coins: vec![],
+        };
+
+        accounting.main().await
+    });
+
     loop {
         match logic(
             &mut client,
-            &mut coins,
+            &tx_for_accounting,
+            &mut rx_from_accounting,
             &license,
             &mut hs,
             &mut explore_heap,
             &mut dig_heap,
-            &mut treasure_heap
         ).await {
             Ok(used_license) => license = used_license,
             Err(e) => {
@@ -217,14 +319,14 @@ async fn _main(address: &str, areas: Vec<Area>) -> ClientResponse<()> {
             }
         };
 
-        iteration += 1;
-        if iteration % 1000 == 0 {
-            println!("{}", client.stats);
-        }
+        // iteration += 1;
+        // if iteration % 1000 == 0 {
+        //     println!("{}", client.stats);
+        // }
     }
 }
 
-#[tokio::main(worker_threads = 1)]
+#[tokio::main(worker_threads = 2)]
 async fn main() ->  Result<(), DescriptiveError> {
     let n_threads = 1;
     println!("Started thread = {}", n_threads);
@@ -236,10 +338,10 @@ async fn main() ->  Result<(), DescriptiveError> {
 
     join_all(
         (0..n_threads).map(|i| {
-            let address_str = address.clone();
+            let addr = address.clone();
             tokio::spawn(async move {
                 let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(&address_str, area
+                _main(addr, area
                     .divide()
                     .iter()
                     .flat_map(|a| a.divide()).collect()

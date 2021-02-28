@@ -161,7 +161,7 @@ pub type ClientResponse<T> = Result<T, DescriptiveError>;
 
 #[derive(Debug)]
 pub struct DescriptiveError {
-    message: String
+    pub message: String
 }
 
 impl DescriptiveError {
