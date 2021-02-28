@@ -56,20 +56,21 @@ impl std::fmt::Display for EpMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} / {}, error rate {:.3}\n", self.total, self.err, self.err / self.total)?;
         // print percentiles from the histogram
-        write!(f, "- percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
-                 self.histogram.percentile(50.0).unwrap(),
-                 self.histogram.percentile(90.0).unwrap(),
-                 self.histogram.percentile(99.0).unwrap(),
-                 self.histogram.percentile(99.9).unwrap(),
+        write!(f, " - percentiles: p50: {} ms p90: {} ms p99: {} ms p999: {}\n",
+                 self.histogram.percentile(50.0).unwrap() as f64 / 100.,
+                 self.histogram.percentile(90.0).unwrap() as f64 / 100.,
+                 self.histogram.percentile(99.0).unwrap() as f64 / 100.,
+                 self.histogram.percentile(99.9).unwrap() as f64 / 100.,
         )?;
-        write!(f, "- latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
-                 self.histogram.minimum().unwrap(),
-                 self.histogram.mean().unwrap(),
-                 self.histogram.maximum().unwrap(),
-                 self.histogram.stddev().unwrap(),
+        write!(f, " - latency (ms): min: {} max: {}, mean: {}  std: {}\n",
+               self.histogram.minimum().unwrap() as f64 / 100.,
+               self.histogram.maximum().unwrap() as f64 / 100.,
+               self.histogram.mean().unwrap() as f64 / 100.,
+               self.histogram.stddev().unwrap() as f64 / 100.,
         )?;
+        write!(f, " - cumm (s): {:.3}\n", self.histogram.mean().unwrap() as f64 * self.total / 1000. / 1000.)?;
         if !self.err_codes.is_empty() {
-            write!(f, "codes {}\n", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
+            write!(f, " - err codes {}\n", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
         }
         Ok(())
     }
@@ -78,25 +79,17 @@ impl std::fmt::Display for EpMetric {
 impl std::fmt::Display for Stats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "total: {}\n", self.total)?;
-        write!(f, "explore: {}", self.explore)?;
+        write!(f, "/explore: {}", self.explore)?;
 
-        write!(f, "digs: {}found {}, found rate {}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
-        let mut dig_stats = self.dig_found_per_depth
-            .iter()
-            .map(|(k, v)| (*k, format!("{}:{:.3}", k, v.1 / v.0)))
-            .collect::<Vec<(u8, String)>>();
-        dig_stats.sort_by(|a, b| a.0.cmp(&b.0));
-        write!(f, "rate at depth {}\n", dig_stats.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", "))?;
+        write!(f, "/dig: {} (*) found {}, found rate {:.3}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
+        write!(f, " (*) rate at depth {}\n",
+               Stats::format_hm(&self.dig_found_per_depth, |v| format!("{:.3}", v.1 / v.0)))?;
 
-        write!(f, "cash: {}", self.cash)?;
-        let mut cash_stats = self.cash_found_per_depth
-            .iter()
-            .map(|(k, v)| (*k, format!("{}:{}", k, v)))
-            .collect::<Vec<(u8, String)>>();
-        cash_stats.sort_by(|a, b| a.0.cmp(&b.0));
-        write!(f, "cash at depth {}\n", cash_stats.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", "))?;
+        write!(f, "/cash: {}", self.cash)?;
+        write!(f, " (*) cash at depth {}\n",
+               Stats::format_hm(&self.cash_found_per_depth, |v| v.to_string()))?;
 
-        write!(f, "license: {}", self.license)
+        write!(f, "/license: {}", self.license)
     }
 }
 
@@ -111,6 +104,14 @@ impl Stats {
         license: EpMetric::new(),
         explore: EpMetric::new(),
     } }
+
+    fn format_hm<T>(hm: &HashMap<u8, T>, f: fn(&T) -> String) -> String {
+        let mut res = hm.iter()
+            .map(|(k, v)| (*k, format!("{}:{}", k, f(v))))
+            .collect::<Vec<(u8, String)>>();
+        res.sort_by(|a, b| a.0.cmp(&b.0));
+        res.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", ")
+    }
 
     fn record_dig(&mut self, duration: u64, depth: u8, found: bool, err: Option<StatusCode>) {
         self.total += 1.;
