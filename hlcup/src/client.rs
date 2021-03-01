@@ -54,21 +54,21 @@ impl EpMetric {
 
 impl std::fmt::Display for EpMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} / {}, error rate {:.3}\n", self.total, self.err, self.err / self.total)?;
-        // print percentiles from the histogram
-        write!(f, " - percentiles: p50: {} ms p90: {} ms p99: {} ms p999: {}\n",
-                 self.histogram.percentile(50.0).unwrap() as f64 / 100.,
-                 self.histogram.percentile(90.0).unwrap() as f64 / 100.,
-                 self.histogram.percentile(99.0).unwrap() as f64 / 100.,
-                 self.histogram.percentile(99.9).unwrap() as f64 / 100.,
-        )?;
-        write!(f, " - latency (ms): min: {} max: {}, mean: {}  std: {}\n",
-               self.histogram.minimum().unwrap() as f64 / 100.,
-               self.histogram.maximum().unwrap() as f64 / 100.,
-               self.histogram.mean().unwrap() as f64 / 100.,
-               self.histogram.stddev().unwrap() as f64 / 100.,
-        )?;
-        write!(f, " - cumm (s): {:.3}\n", self.histogram.mean().unwrap() as f64 * self.total / 1000. / 1000.)?;
+        write!(f, "{} / {}, error rate {:.3}", self.total, self.err, self.err / self.total)?;
+
+        write!(f, "\n- percentiles:")?;
+        self.histogram.percentile(50.0).map(|r| { write!(f, "p50:  {} ms ", r as f64 / 100.) });
+        self.histogram.percentile(90.0).map(|r| { write!(f, "p90:  {} ms ", r as f64 / 100.) });
+        self.histogram.percentile(99.0).map(|r| { write!(f, "p99:  {} ms ", r as f64 / 100.) });
+        self.histogram.percentile(99.9).map(|r| { write!(f, "p999: {} ms ", r as f64 / 100.) });
+
+        write!(f, "\n- latency (ms)")?;
+        self.histogram.minimum().map(|r| write!(f, "min: {} ", r as f64 / 100.));
+        self.histogram.maximum().map(|r| write!(f, "max: {} ", r as f64 / 100.));
+        self.histogram.mean().map(|r| write!(f, "mean: {} ", r as f64 / 100.));
+        self.histogram.stddev().map(|r| write!(f, "std: {} ", r as f64 / 100.));
+        self.histogram.mean().map(|r| write!(f, "\n- cumm (s): {:.3}", r as f64 * self.total / 1000. / 1000.));
+
         if !self.err_codes.is_empty() {
             write!(f, " - err codes {}\n", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
         }

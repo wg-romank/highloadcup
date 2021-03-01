@@ -107,6 +107,9 @@ enum MessageFromAccounting {
 }
 
 impl Accounting {
+    fn accounting_log(message: String) {
+        // println!("[accounting]: {}", message);
+    }
     async fn main(&mut self) -> ClientResponse<()> {
         loop {
             // todo: recover here
@@ -121,7 +124,7 @@ impl Accounting {
 
             match self.step().await {
                 Ok(_) => (),
-                Err(e) => println!("{}", e),
+                Err(e) => Accounting::accounting_log(e.to_string()),
             };
         }
     }
@@ -132,7 +135,7 @@ impl Accounting {
             tokio::spawn(
                 async move {
                     tx2.send(MessageFromAccounting::LicenseToUse(lic)).await
-                        .map_err(|e| println!("tx send err {}", e));
+                        .map_err(|e| Accounting::accounting_log(format!("tx send err {}", e)));
                 }
             );
         }
@@ -143,7 +146,7 @@ impl Accounting {
                 match self.client.cash(pending_cash.depth, treasure.clone()).await {
                     Ok(got_coins) => self.coins.extend(got_coins),
                     Err(e) => {
-                        println!("{}", e);
+                        Accounting::accounting_log(e.to_string());
                         self.treasures.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]})
                     }
                 };
@@ -319,14 +322,14 @@ async fn _main(address: String, areas: Vec<Area>) -> ClientResponse<()> {
             }
         };
 
-        // iteration += 1;
-        // if iteration % 1000 == 0 {
-        //     println!("{}", client.stats);
-        // }
+        iteration += 1;
+        if iteration % 1000 == 0 {
+            println!("{}", client.stats);
+        }
     }
 }
 
-#[tokio::main(worker_threads = 2)]
+#[tokio::main]
 async fn main() ->  Result<(), DescriptiveError> {
     let n_threads = 1;
     println!("Started thread = {}", n_threads);
