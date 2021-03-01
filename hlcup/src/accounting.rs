@@ -3,7 +3,7 @@ use crate::client::ClientResponse;
 use crate::model::Treasure;
 use crate::dto::License;
 
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -12,16 +12,18 @@ use tokio::time::timeout;
 pub struct Accounting {
     client: Client,
     rx: mpsc::Receiver<MessageForAccounting>,
-    tx: mpsc::Sender<MessageFromAccounting>,
+    txes: HashMap<u8, mpsc::Sender<MessageFromAccounting>>,
     treasures: BinaryHeap<Treasure>,
     active_licenses: u8,
+    worker_with_license: HashSet<u8>,
     licenses: Vec<License>,
     coins: Vec<u64>,
 }
 
 pub enum MessageForAccounting {
     TreasureToClaim(Treasure),
-    LicenseExpired,
+    LicenseExpired(u8),
+    TxToUse(u8, mpsc::Sender<MessageFromAccounting>)
 }
 
 pub enum MessageFromAccounting {
@@ -32,14 +34,14 @@ impl Accounting {
     pub fn new(
         addr: String,
         rx: mpsc::Receiver<MessageForAccounting>,
-        tx: mpsc::Sender<MessageFromAccounting>
     ) -> Accounting {
         Accounting {
             client: Client::new(&addr),
             rx: rx,
-            tx: tx,
+            txes: HashMap::new(),
             treasures: BinaryHeap::new(),
             active_licenses: 0,
+            worker_with_license: HashSet::new(),
             licenses: vec![],
             coins: vec![],
         }
@@ -49,17 +51,40 @@ impl Accounting {
         // println!("[accounting]: {}", message);
     }
 
+    async fn send_lic(license: License, tx: mpsc::Sender<MessageFromAccounting>) {
+        tokio::spawn(
+            async move {
+                tx.send(MessageFromAccounting::LicenseToUse(license)).await
+                    .map_err(|e| Accounting::accounting_log(format!("tx send err {}", e)));
+            }
+        );
+    }
+
     pub async fn main(&mut self) -> ClientResponse<()> {
         loop {
-            // todo: recover here
-            timeout(Duration::from_millis(10), self.rx.recv()).await.map(
-                |msg| if let Some(message) = msg {
-                    match message {
-                        MessageForAccounting::TreasureToClaim(tid) => self.treasures.push(tid),
-                        MessageForAccounting::LicenseExpired => self.active_licenses -= 1,
+            for (w, tx) in self.txes.iter() {
+                if !self.worker_with_license.contains(w) {
+                    while let Some(lic) = self.licenses.pop() {
+                        Accounting::send_lic(lic, tx.clone()).await;
+                        self.worker_with_license.insert(*w);
                     }
                 }
-            );
+            }
+
+            match timeout(Duration::from_millis(10), self.rx.recv()).await {
+                Ok(msg) => match msg {
+                    Some(message) => match message {
+                        MessageForAccounting::TxToUse(tid, tx) => { self.txes.insert(tid, tx.clone()); },
+                        MessageForAccounting::TreasureToClaim(tid) => { self.treasures.push(tid); },
+                        MessageForAccounting::LicenseExpired(workerid) => {
+                            self.worker_with_license.remove(&workerid);
+                            self.active_licenses -= 1;
+                        },
+                    },
+                    None => (),
+                }
+                Err(_) => (),
+            };
 
             match self.step().await {
                 Ok(_) => (),
@@ -69,16 +94,6 @@ impl Accounting {
     }
 
     async fn step(&mut self) -> ClientResponse<()> {
-        while let Some(lic) = self.licenses.pop() {
-            let tx2 = self.tx.clone();
-            tokio::spawn(
-                async move {
-                    tx2.send(MessageFromAccounting::LicenseToUse(lic)).await
-                        .map_err(|e| Accounting::accounting_log(format!("tx send err {}", e)));
-                }
-            );
-        }
-
         // todo: tradeoff between claiming and getting new licenses
         if let Some(pending_cash) = self.treasures.pop() {
             for treasure in pending_cash.treasures.into_iter() {
