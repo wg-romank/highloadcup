@@ -25,6 +25,8 @@ use dto::*;
 
 use model::Treasure;
 use tokio::runtime;
+use tokio::time::timeout;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingDig {
@@ -156,11 +158,14 @@ async fn logic(
                     }
                 );
             };
-            match rx.recv().await {
-                Some(msg) => match msg {
-                    MessageFromAccounting::LicenseToUse(lic) => Some(lic)
+            match timeout(Duration::from_millis(10), rx.recv()).await {
+                Ok(msg) => match msg {
+                    Some(msg) => match msg {
+                        MessageFromAccounting::LicenseToUse(lic) => Some(lic)
+                    }
+                    None => None
                 }
-                None => None
+                Err(_) => None
             }
         }
     };
