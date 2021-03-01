@@ -81,7 +81,7 @@ impl std::fmt::Display for Stats {
         write!(f, "total: {}\n", self.total)?;
         write!(f, "/explore: {}", self.explore)?;
 
-        write!(f, "/dig: {} (*) found {}, found rate {:.3}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
+        write!(f, "/dig: {}\n(*) found {}, found rate {:.3}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
         write!(f, " (*) rate at depth {}\n",
                Stats::format_hm(&self.dig_found_per_depth, |v| format!("{:.3}", v.1 / v.0)))?;
 
