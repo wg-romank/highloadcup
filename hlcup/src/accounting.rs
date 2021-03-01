@@ -61,7 +61,10 @@ impl Accounting {
     }
 
     pub async fn main(&mut self) -> ClientResponse<()> {
+        let mut iteration = 0;
+
         loop {
+            iteration += 1;
             for (w, tx) in self.txes.iter() {
                 if !self.worker_with_license.contains(w) {
                     while let Some(lic) = self.licenses.pop() {
@@ -90,6 +93,10 @@ impl Accounting {
                 Ok(_) => (),
                 Err(e) => Accounting::accounting_log(e.to_string()),
             };
+
+            if iteration % 1000 == 0 {
+                println!("unclaimed treasures {}", self.treasures.len());
+            }
         }
     }
 

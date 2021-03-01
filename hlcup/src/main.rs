@@ -16,7 +16,6 @@ mod model;
 
 use client::Client;
 use client::ClientResponse;
-use client::DescriptiveError;
 
 use accounting::Accounting;
 use accounting::MessageFromAccounting;
@@ -25,7 +24,7 @@ use accounting::MessageForAccounting;
 use dto::*;
 
 use model::Treasure;
-use futures::TryFutureExt;
+use tokio::runtime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingDig {
@@ -223,16 +222,21 @@ async fn _main(id: u8, address: String, areas: Vec<Area>, tx: mpsc::Sender<Messa
             }
         };
 
-        iteration += 1;
-        if iteration % 1000 == 0 {
-            println!("{}", client.stats);
-        }
+        // iteration += 1;
+        // if iteration % 1000 == 0 {
+        //     println!("{}", client.stats);
+        // }
     }
 }
 
-#[tokio::main]
-async fn main() ->  Result<(), DescriptiveError> {
-    let n_workers = 1;
+fn main() -> () {
+    let n_workers: u64 = 4;
+    let threaded_rt = runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(n_workers as usize)
+        .build()
+        .expect("Could not build runtime");
+
     println!("Started thread = {}", n_workers);
 
     let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
@@ -243,7 +247,7 @@ async fn main() ->  Result<(), DescriptiveError> {
     let (tx_for_accounting, rx_for_accounting) = mpsc::channel(1000);
 
     let address_clone = address.clone();
-    tokio::spawn(async move {
+    threaded_rt.spawn(async move {
         let mut accounting = Accounting::new(
             address_clone,
             rx_for_accounting
@@ -251,21 +255,21 @@ async fn main() ->  Result<(), DescriptiveError> {
         accounting.main().await
     });
 
-    join_all(
-        (0..n_workers).map(|i| {
-            let addr = address.clone();
-            let tx = tx_for_accounting.clone();
-            tokio::spawn(async move {
-                let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(i as u8, addr, area
-                    .divide()
-                    .iter()
-                    .flat_map(|a| a.divide()).collect(), tx).await
+    threaded_rt.block_on(
+        join_all(
+            (0..n_workers).map(|i| {
+                let addr = address.clone();
+                let tx = tx_for_accounting.clone();
+                threaded_rt.spawn(async move {
+                    let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
+                    _main(i as u8, addr, area
+                        .divide()
+                        .iter()
+                        .flat_map(|a| a.divide()).collect(), tx).await
+                })
             })
-        })
-    ).await;
-
-    Ok(())
+        )
+    );
 }
 
 
