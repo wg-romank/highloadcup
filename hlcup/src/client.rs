@@ -2,7 +2,7 @@ use crate::dto::*;
 
 use reqwest::Error;
 use reqwest::StatusCode;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, BTreeMap};
 use histogram::Histogram;
 use std::time::Instant;
 
@@ -19,9 +19,9 @@ pub struct Stats {
     total: f64,
     dig: EpMetric,
     dig_found: f64,
-    dig_found_per_depth: HashMap<u8, (f64, f64)>,
+    dig_found_per_depth: BTreeMap<u8, (f64, f64)>,
     cash: EpMetric,
-    cash_found_per_depth: HashMap<u8, u64>,
+    cash_at_depth: EpMetric,
     license: EpMetric,
     explore: EpMetric,
 }
@@ -30,18 +30,18 @@ pub struct EpMetric {
     total: f64,
     err: f64,
     err_codes: HashSet<String>,
-    histogram: Histogram,
+    histograms: BTreeMap<u8, Histogram>,
 }
 
 impl EpMetric {
     fn new() -> EpMetric {
-        EpMetric { total: 0., err: 0., err_codes: HashSet::new(), histogram: Histogram::new() }
+        EpMetric { total: 0., err: 0., err_codes: HashSet::new(), histograms: BTreeMap::new() }
     }
 
-    fn inc(&mut self, duration: u64, err: Option<StatusCode>) {
+    fn inc(&mut self, map_key: u8, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.histogram.increment(duration)
-            .map_err(|e| println!("hist err: {}", e));
+        self.histograms.entry(map_key).or_insert(Histogram::new()).increment(duration);
+            // .map_err(|e| println!("hist err: {}", e));
         match err {
             Some(status) => {
                 self.err += 1.;
@@ -56,18 +56,22 @@ impl std::fmt::Display for EpMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} / {}, error rate {:.3}\n", self.total, self.err, self.err / self.total)?;
         // print percentiles from the histogram
-        write!(f, "- percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
-                 self.histogram.percentile(50.0).unwrap(),
-                 self.histogram.percentile(90.0).unwrap(),
-                 self.histogram.percentile(99.0).unwrap(),
-                 self.histogram.percentile(99.9).unwrap(),
-        )?;
-        write!(f, "- latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
-                 self.histogram.minimum().unwrap(),
-                 self.histogram.mean().unwrap(),
-                 self.histogram.maximum().unwrap(),
-                 self.histogram.stddev().unwrap(),
-        )?;
+        for (depth, histogram) in self.histograms.iter() {
+            write!(f, "({}) - percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
+                   depth,
+                   histogram.percentile(50.0).unwrap(),
+                   histogram.percentile(90.0).unwrap(),
+                   histogram.percentile(99.0).unwrap(),
+                   histogram.percentile(99.9).unwrap(),
+            )?;
+            write!(f, "({}) - latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
+                   depth,
+                   histogram.minimum().unwrap(),
+                   histogram.mean().unwrap(),
+                   histogram.maximum().unwrap(),
+                   histogram.stddev().unwrap(),
+            )?;
+        }
         if !self.err_codes.is_empty() {
             write!(f, "codes {}\n", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
         }
@@ -81,20 +85,14 @@ impl std::fmt::Display for Stats {
         write!(f, "explore: {}", self.explore)?;
 
         write!(f, "digs: {}found {}, found rate {}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
-        let mut dig_stats = self.dig_found_per_depth
+        let dig_stats: String = self.dig_found_per_depth
             .iter()
-            .map(|(k, v)| (*k, format!("{}:{:.3}", k, v.1 / v.0)))
-            .collect::<Vec<(u8, String)>>();
-        dig_stats.sort_by(|a, b| a.0.cmp(&b.0));
-        write!(f, "rate at depth {}\n", dig_stats.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", "))?;
+            .map(|(k, v)| format!("{}:{:.3}", k, v.1 / v.0))
+            .collect::<Vec<String>>().join(", ");
+        write!(f, "rate at depth {}\n", dig_stats)?;
 
         write!(f, "cash: {}", self.cash)?;
-        let mut cash_stats = self.cash_found_per_depth
-            .iter()
-            .map(|(k, v)| (*k, format!("{}:{}", k, v)))
-            .collect::<Vec<(u8, String)>>();
-        cash_stats.sort_by(|a, b| a.0.cmp(&b.0));
-        write!(f, "cash at depth {}\n", cash_stats.into_iter().map(|(_, b)| b).collect::<Vec<String>>().join(", "))?;
+        write!(f, "cash at depth: {}\n", self.cash_at_depth)?;
 
         write!(f, "license: {}", self.license)
     }
@@ -105,16 +103,16 @@ impl Stats {
         total: 0.,
         dig: EpMetric::new(),
         dig_found: 0.,
-        dig_found_per_depth: HashMap::new(),
+        dig_found_per_depth: BTreeMap::new(),
         cash: EpMetric::new(),
-        cash_found_per_depth: HashMap::new(),
+        cash_at_depth: EpMetric::new(),
         license: EpMetric::new(),
         explore: EpMetric::new(),
     } }
 
     fn record_dig(&mut self, duration: u64, depth: u8, found: bool, err: Option<StatusCode>) {
         self.total += 1.;
-        self.dig.inc(duration, err);
+        self.dig.inc(depth, duration, err);
 
         self.dig_found_per_depth.entry(depth).or_insert((0., 0.)).0 += 1.;
         if found {
@@ -125,18 +123,18 @@ impl Stats {
 
     fn record_cash(&mut self, duration: u64, depth: u8, amount: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.cash.inc(duration, err);
-        *self.cash_found_per_depth.entry(depth).or_insert(0) += amount;
+        self.cash.inc(depth, duration, err);
+        self.cash_at_depth.inc(depth, amount, err);
     }
 
     fn record_license(&mut self, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.license.inc(duration, err);
+        self.license.inc(0, duration, err);
     }
 
-    fn record_explore(&mut self, duration: u64, err: Option<StatusCode>) {
+    fn record_explore(&mut self, area_size: u64, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.explore.inc(duration, err);
+        self.explore.inc(if area_size == 1 { 1 } else { 2 }, duration, err);
     }
 }
 
@@ -194,11 +192,12 @@ impl Client {
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats.record_explore(elapsed, None);
-                Ok(response.json::<Explore>().await?)
+                let r = response.json::<Explore>().await?;
+                self.stats.record_explore(r.area.size(), elapsed, None);
+                Ok(r)
             },
             status => {
-                self.stats.record_explore(elapsed, Some(status));
+                self.stats.record_explore(2, elapsed, Some(status));
                 Err(DescriptiveError::new("explore",status, response.text().await?))
             },
         }
