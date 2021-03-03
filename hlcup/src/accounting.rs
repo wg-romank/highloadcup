@@ -3,7 +3,7 @@ use crate::client::ClientResponse;
 use crate::model::Treasure;
 use crate::dto::License;
 
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::BinaryHeap;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
@@ -12,18 +12,16 @@ use tokio::time::timeout;
 pub struct Accounting {
     client: Client,
     rx: mpsc::Receiver<MessageForAccounting>,
-    txes: HashMap<u8, mpsc::Sender<MessageFromAccounting>>,
+    tx: mpsc::Sender<MessageFromAccounting>,
     treasures: BinaryHeap<Treasure>,
     active_licenses: u8,
-    worker_with_license: HashSet<u8>,
     licenses: Vec<License>,
     coins: Vec<u64>,
 }
 
 pub enum MessageForAccounting {
     TreasureToClaim(Treasure),
-    LicenseExpired(u8),
-    TxToUse(u8, mpsc::Sender<MessageFromAccounting>)
+    LicenseExpired,
 }
 
 pub enum MessageFromAccounting {
@@ -34,14 +32,14 @@ impl Accounting {
     pub fn new(
         client: Client,
         rx: mpsc::Receiver<MessageForAccounting>,
+        tx: mpsc::Sender<MessageFromAccounting>,
     ) -> Accounting {
         Accounting {
             client: client,
             rx: rx,
-            txes: HashMap::new(),
+            tx: tx,
             treasures: BinaryHeap::new(),
             active_licenses: 0,
-            worker_with_license: HashSet::new(),
             licenses: vec![],
             coins: vec![],
         }
@@ -55,34 +53,23 @@ impl Accounting {
         tokio::spawn(
             async move {
                 tx.send(MessageFromAccounting::LicenseToUse(license)).await
-                    .map_err(|e| Accounting::accounting_log(format!("tx send err {}", e)))
+                    .map_err(|e| panic!("tx send err {}", e))
             }
         );
     }
 
     pub async fn main(&mut self) -> ClientResponse<()> {
         loop {
-            for (w, tx) in self.txes.iter() {
-                if !self.worker_with_license.contains(w) {
-                    while let Some(lic) = self.licenses.pop() {
-                        Accounting::send_lic(lic, tx.clone()).await;
-                        self.worker_with_license.insert(*w);
-                    }
-                }
+            if let Some(lic) = self.licenses.pop() {
+                Accounting::send_lic(lic, self.tx.clone()).await;
             }
 
             match timeout(Duration::from_millis(10), self.rx.recv()).await {
-                Ok(msg) => match msg {
-                    Some(message) => match message {
-                        MessageForAccounting::TxToUse(tid, tx) => { self.txes.insert(tid, tx.clone()); },
+                Ok(msg) => { msg.map(
+                    |message| match message {
                         MessageForAccounting::TreasureToClaim(tid) => { self.treasures.push(tid); },
-                        MessageForAccounting::LicenseExpired(workerid) => {
-                            self.worker_with_license.remove(&workerid);
-                            self.active_licenses -= 1;
-                        },
-                    },
-                    None => (),
-                }
+                        MessageForAccounting::LicenseExpired => { self.active_licenses -= 1; },
+                    }); },
                 Err(_) => (),
             };
 

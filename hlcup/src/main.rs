@@ -77,7 +77,6 @@ impl PartialOrd for PendingDig {
 }
 
 async fn logic(
-    id: u8,
     client: &Client,
     tx: &mpsc::Sender<MessageForAccounting>,
     rx: &mut mpsc::Receiver<MessageFromAccounting>,
@@ -135,7 +134,7 @@ async fn logic(
                 let tx2 = tx.clone();
                 tokio::spawn(
                     async move {
-                        tx2.send(MessageForAccounting::LicenseExpired(id)).await
+                        tx2.send(MessageForAccounting::LicenseExpired).await
                             .map_err(|r| panic!("failed to send license expired message {}", r))
                     }
                 );
@@ -167,7 +166,7 @@ async fn init_state(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryH
     Ok(explore_heap)
 }
 
-async fn _main(id: u8, client: Client, areas: Vec<Area>) -> ClientResponse<()> {
+async fn _main(client: Client, areas: Vec<Area>) -> ClientResponse<()> {
     let mut explore_heap = init_state(&client, areas).await?;
 
     // multiple producers, single consumer? for coins
@@ -178,18 +177,11 @@ async fn _main(id: u8, client: Client, areas: Vec<Area>) -> ClientResponse<()> {
     let (tx, rx_for_accounting) = mpsc::channel(1000);
     let cl = client.clone();
     tokio::spawn(async move {
-        Accounting::new(cl, rx_for_accounting).main().await
-    });
-
-    let tt = tx.clone();
-    tokio::spawn(async move {
-        tt.send(MessageForAccounting::TxToUse(id, tx_from_accounting)).await
-            .map_err(|r| panic!("failed to send tx to accounting {}", r))
+        Accounting::new(cl, rx_for_accounting, tx_from_accounting).main().await
     });
 
     loop {
         match logic(
-            id,
             &client,
             &tx,
             &mut rx_from_accounting,
@@ -226,7 +218,7 @@ fn main() -> () {
             let client = client.clone();
             threaded_rt.spawn(async move {
                 let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(i as u8, client, area
+                _main(client, area
                     .divide()
                     .iter()
                     .flat_map(|a| a.divide()).collect()).await
