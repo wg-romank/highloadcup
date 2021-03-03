@@ -32,11 +32,11 @@ pub enum MessageFromAccounting {
 
 impl Accounting {
     pub fn new(
-        addr: String,
+        client: Client,
         rx: mpsc::Receiver<MessageForAccounting>,
     ) -> Accounting {
         Accounting {
-            client: Client::new(&addr),
+            client: client,
             rx: rx,
             txes: HashMap::new(),
             treasures: BinaryHeap::new(),
@@ -47,7 +47,7 @@ impl Accounting {
         }
     }
 
-    fn accounting_log(message: String) {
+    fn accounting_log(_message: String) {
         // println!("[accounting]: {}", message);
     }
 
@@ -55,16 +55,13 @@ impl Accounting {
         tokio::spawn(
             async move {
                 tx.send(MessageFromAccounting::LicenseToUse(license)).await
-                    .map_err(|e| Accounting::accounting_log(format!("tx send err {}", e)));
+                    .map_err(|e| Accounting::accounting_log(format!("tx send err {}", e)))
             }
         );
     }
 
     pub async fn main(&mut self) -> ClientResponse<()> {
-        let mut iteration = 0;
-
         loop {
-            iteration += 1;
             for (w, tx) in self.txes.iter() {
                 if !self.worker_with_license.contains(w) {
                     while let Some(lic) = self.licenses.pop() {
@@ -93,10 +90,6 @@ impl Accounting {
                 Ok(_) => (),
                 Err(e) => Accounting::accounting_log(e.to_string()),
             };
-
-            if iteration % 1000 == 0 {
-                println!("unclaimed treasures {}", self.treasures.len());
-            }
         }
     }
 
@@ -104,7 +97,7 @@ impl Accounting {
         // todo: tradeoff between claiming and getting new licenses
         if let Some(pending_cash) = self.treasures.pop() {
             for treasure in pending_cash.treasures.into_iter() {
-                match self.client.cash(pending_cash.depth, treasure.clone()).await {
+                match self.client.cash(treasure.clone()).await {
                     Ok(got_coins) => self.coins.extend(got_coins),
                     Err(e) => {
                         Accounting::accounting_log(e.to_string());

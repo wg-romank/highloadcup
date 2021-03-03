@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::BinaryHeap;
 
 use futures::future::join_all;
 
@@ -33,7 +33,7 @@ struct PendingDig {
     x: u64,
     y: u64,
     depth: u8,
-    remaining: u64
+    remaining: u64,
 }
 
 impl PendingDig {
@@ -55,12 +55,12 @@ impl PendingDig {
             Some(PendingDig {
                 depth: self.depth + 1,
                 remaining: self.remaining - excavated,
-                ..*self })
+                ..*self
+            })
         } else {
             None
         }
     }
-
 }
 
 impl Ord for PendingDig {
@@ -78,11 +78,10 @@ impl PartialOrd for PendingDig {
 
 async fn logic(
     id: u8,
-    client: &mut Client,
+    client: &Client,
     tx: &mpsc::Sender<MessageForAccounting>,
     rx: &mut mpsc::Receiver<MessageFromAccounting>,
     license: &Option<License>,
-    digging_coordinates: &mut HashSet<(u64, u64)>,
     explore_heap: &mut BinaryHeap<Explore>,
     dig_heap: &mut BinaryHeap<PendingDig>,
 ) -> ClientResponse<Option<License>> {
@@ -93,30 +92,12 @@ async fn logic(
             1 => {
                 let x = ar.area.pos_x;
                 let y = ar.area.pos_y;
-                if !digging_coordinates.contains(&(x, y)) {
-                    digging_coordinates.insert((x, y));
-                    dig_heap.push(PendingDig::new(x, y, ar.amount));
-                } else {
-                    panic!("digging twice at {} {}", x, y);
-                }
+                dig_heap.push(PendingDig::new(x, y, ar.amount));
             }
-            _ => {
-                let total = ar.amount;
-                let mut cum = 0;
-                let divided = ar.area.divide();
-                let ll = divided.len();
-                for (idx, a) in divided.into_iter().enumerate() {
-                    let res = client.explore(&a).await?;
-                    if res.amount > 0 {
-                        cum += res.amount;
-                        explore_heap.push(res);
-                    }
-
-                    if idx + 1 < ll {
-                        if cum > (total - cum) {
-                            break;
-                        }
-                    }
+            _ => for a in ar.area.divide().into_iter() {
+                let res = client.explore(&a).await?;
+                if res.amount > 0 {
+                    explore_heap.push(res);
                 }
             }
         }
@@ -140,7 +121,7 @@ async fn logic(
                             tx2.send(MessageForAccounting::TreasureToClaim(Treasure {
                                 depth: pending_dig.depth,
                                 treasures: treasure,
-                            })).await.map_err(|e| panic!("cannot send treasure {}", e));
+                            })).await.map_err(|r| panic!("failed to send treasure {}", r))
                         }
                     );
                 }
@@ -154,18 +135,14 @@ async fn logic(
                 let tx2 = tx.clone();
                 tokio::spawn(
                     async move {
-                        tx2.send(MessageForAccounting::LicenseExpired(id)).await;
+                        tx2.send(MessageForAccounting::LicenseExpired(id)).await
+                            .map_err(|r| panic!("failed to send license expired message {}", r))
                     }
                 );
             };
             match timeout(Duration::from_millis(10), rx.recv()).await {
-                Ok(msg) => match msg {
-                    Some(msg) => match msg {
-                        MessageFromAccounting::LicenseToUse(lic) => Some(lic)
-                    }
-                    None => None
-                }
-                Err(_) => None
+                Ok(msg) => msg.map(|MessageFromAccounting::LicenseToUse(lic)| lic),
+                Err(_) => None,
             }
         }
     };
@@ -174,7 +151,7 @@ async fn logic(
 }
 
 // todo: get rid of it
-async fn init_state(client: &mut Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
+async fn init_state(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
     let mut errors = areas.clone();
     let mut explore_heap = BinaryHeap::new();
     while let Some(a) = errors.pop() {
@@ -190,34 +167,33 @@ async fn init_state(client: &mut Client, areas: Vec<Area>) -> ClientResponse<Bin
     Ok(explore_heap)
 }
 
-async fn _main(id: u8, address: String, areas: Vec<Area>, tx: mpsc::Sender<MessageForAccounting>) -> ClientResponse<()> {
-    let mut client = Client::new(&address);
-    let mut explore_heap = init_state(&mut client, areas).await?;
+async fn _main(id: u8, client: Client, areas: Vec<Area>) -> ClientResponse<()> {
+    let mut explore_heap = init_state(&client, areas).await?;
 
     // multiple producers, single consumer? for coins
     let mut license: Option<License> = None;
     let mut dig_heap: BinaryHeap<PendingDig> = BinaryHeap::new();
 
     let (tx_from_accounting, mut rx_from_accounting) = mpsc::channel(20);
+    let (tx, rx_for_accounting) = mpsc::channel(1000);
+    let cl = client.clone();
+    tokio::spawn(async move {
+        Accounting::new(cl, rx_for_accounting).main().await
+    });
 
     let tt = tx.clone();
     tokio::spawn(async move {
         tt.send(MessageForAccounting::TxToUse(id, tx_from_accounting)).await
-            .map_err(|r| panic!("failed to send tx to accounting {}", r));
+            .map_err(|r| panic!("failed to send tx to accounting {}", r))
     });
-
-    let mut hs = HashSet::new();
-
-    let mut iteration = 0;
 
     loop {
         match logic(
             id,
-            &mut client,
+            &client,
             &tx,
             &mut rx_from_accounting,
             &license,
-            &mut hs,
             &mut explore_heap,
             &mut dig_heap,
         ).await {
@@ -226,16 +202,11 @@ async fn _main(id: u8, address: String, areas: Vec<Area>, tx: mpsc::Sender<Messa
                 println!("error {}", e)
             }
         };
-
-        // iteration += 1;
-        // if iteration % 1000 == 0 {
-        //     println!("{}", client.stats);
-        // }
     }
 }
 
 fn main() -> () {
-    let n_workers: u64 = 4;
+    let n_workers: u64 = 1;
     let threaded_rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(n_workers as usize)
@@ -244,36 +215,23 @@ fn main() -> () {
 
     println!("Started thread = {}", n_workers);
 
-    let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
+    let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
+    let client = Client::new(&address);
 
     let w = 3500 / n_workers;
     let h = 3500;
 
-    let (tx_for_accounting, rx_for_accounting) = mpsc::channel(1000);
-
-    let address_clone = address.clone();
-    threaded_rt.spawn(async move {
-        let mut accounting = Accounting::new(
-            address_clone,
-            rx_for_accounting
-        );
-        accounting.main().await
-    });
-
     threaded_rt.block_on(
-        join_all(
-            (0..n_workers).map(|i| {
-                let addr = address.clone();
-                let tx = tx_for_accounting.clone();
-                threaded_rt.spawn(async move {
-                    let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                    _main(i as u8, addr, area
-                        .divide()
-                        .iter()
-                        .flat_map(|a| a.divide()).collect(), tx).await
-                })
+        join_all((0..n_workers).map(|i| {
+            let client = client.clone();
+            threaded_rt.spawn(async move {
+                let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
+                _main(i as u8, client, area
+                    .divide()
+                    .iter()
+                    .flat_map(|a| a.divide()).collect()).await
             })
-        )
+        }))
     );
 }
 
