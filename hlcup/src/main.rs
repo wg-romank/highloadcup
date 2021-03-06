@@ -93,11 +93,25 @@ async fn logic(
                 let y = ar.area.pos_y;
                 dig_heap.push(PendingDig::new(x, y, ar.amount));
             }
-            _ => for a in ar.area.divide().into_iter() {
-                let res = client.explore(&a).await?;
-                if res.amount > 0 {
-                    explore_heap.push(res);
+            _ => {
+                let divided = ar.area.divide();
+                let mut cum = 0;
+                for a in divided[..divided.len() - 1].into_iter() {
+                    let res = client.explore(&a).await?;
+                    if res.amount > 0 {
+                        cum += res.amount;
+                        explore_heap.push(res);
+                        if cum == ar.amount {
+                            break
+                        }
+                    };
                 }
+                if ar.amount > cum {
+                    divided.last().map(|a| {
+                        explore_heap.push(Explore { area: *a, amount: ar.amount - cum });
+                    });
+                }
+                // assert_eq!(ar.amount, cum);
             }
         }
     }
