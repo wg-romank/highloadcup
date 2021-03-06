@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 use serde::{Serialize, Deserialize};
+use std::time::Instant;
+use crate::constants::{TIME_LIMIT_MS, MAX_DEPTH, AVG_DIG_MS};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +79,23 @@ impl Area {
 pub struct Explore {
     pub area: Area,
     pub amount: u64,
+}
+
+impl Explore {
+    pub fn cost(&self) -> u128 {
+        // todo: constants are no good here
+        self.area.size() as u128 * (MAX_DEPTH as u128 / 3) * AVG_DIG_MS
+    }
+
+    pub fn is_managable(&self, started: Instant) -> bool {
+        let time_since_started_ms = started.elapsed().as_millis();
+        let remaining_time_ms = TIME_LIMIT_MS - time_since_started_ms;
+        self.cost() < remaining_time_ms
+    }
+
+    pub fn hash(&self) -> String {
+        format!("[{}, {}; {}, {}] - {}", self.area.pos_x, self.area.pos_y, self.area.size_x, self.area.size_y, self.amount)
+    }
 }
 
 impl Ord for Explore {

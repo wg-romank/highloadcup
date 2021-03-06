@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+use crate::constants::CONCURRENT_LICENSES;
 
 pub struct Accounting {
     client: Client,
@@ -94,7 +95,7 @@ impl Accounting {
             }
         }
 
-        if self.active_licenses < 5 {
+        if self.active_licenses < CONCURRENT_LICENSES {
             let license = if let Some(c) = self.coins.pop() {
                 self.client.get_license(vec![c]).await
                     .map_err(|e| { self.coins.push(c); e })?

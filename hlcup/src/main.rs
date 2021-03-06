@@ -13,6 +13,7 @@ mod client;
 mod dto;
 mod accounting;
 mod model;
+mod constants;
 
 use client::Client;
 use client::ClientResponse;
@@ -26,7 +27,8 @@ use dto::*;
 use model::Treasure;
 use tokio::runtime;
 use tokio::time::timeout;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use crate::constants::TIME_LIMIT_MS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingDig {
@@ -164,24 +166,46 @@ async fn logic(
 }
 
 // todo: get rid of it
-async fn init_state(client: &Client, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
-    let mut errors = areas.clone();
+async fn init_state(client: &Client, started: Instant, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
+    let mut errors = BinaryHeap::new();
+    areas.clone().iter().for_each(|a| {
+        errors.push(Explore { area: *a, amount: u64::max_value() })
+    });
     let mut explore_heap = BinaryHeap::new();
+    let mut cum_cost = 0;
     while let Some(a) = errors.pop() {
-        match client.explore(&a).await {
-            Ok(result) => explore_heap.push(result),
+        match client.explore(&a.area).await {
+            Ok(result) if result.is_managable(started) => {
+                cum_cost += result.cost();
+                explore_heap.push(result);
+                // todo: multiple?
+                let time_since_started_ms = started.elapsed().as_millis();
+                let remaining_time_ms = TIME_LIMIT_MS - time_since_started_ms;
+                if cum_cost > remaining_time_ms {
+                    break
+                }
+            },
+            Ok(result) => {
+                errors.extend(result.area.divide().into_iter().map(|a| Explore { area: a, amount: result.amount }))
+            }
             Err(_) => {
                 // println!("area too big {:#?}", a);
-                errors.extend(a.divide())
+                errors.extend(a.area.divide().into_iter().map(|a| Explore { area: a, amount: u64::max_value() }))
+
             }
         }
     };
 
+    println!("picking:");
+    for i in explore_heap.iter() {
+        println!("{}", i.hash())
+    }
+
     Ok(explore_heap)
 }
 
-async fn _main(client: Client, areas: Vec<Area>) -> ClientResponse<()> {
-    let mut explore_heap = init_state(&client, areas).await?;
+async fn _main(client: Client, started: Instant, areas: Vec<Area>) -> ClientResponse<()> {
+    let mut explore_heap = init_state(&client, started, areas).await?;
 
     // multiple producers, single consumer? for coins
     let mut license: Option<License> = None;
@@ -212,27 +236,28 @@ async fn _main(client: Client, areas: Vec<Area>) -> ClientResponse<()> {
 }
 
 fn main() -> () {
-    let n_workers: u64 = 1;
+    let n_workers: u64 = 4;
     let threaded_rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(n_workers as usize)
         .build()
         .expect("Could not build runtime");
+    let started = Instant::now();
 
     println!("Started thread = {}", n_workers);
 
     let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
     let client = Client::new(&address);
 
-    let w = 350 / n_workers;
-    let h = 350;
+    let w = 3500 / n_workers;
+    let h = 3500;
 
     threaded_rt.block_on(
         join_all((0..n_workers).map(|i| {
             let client = client.clone();
             threaded_rt.spawn(async move {
                 let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(client, area
+                _main(client, started, area
                     .divide()
                     .iter()
                     .flat_map(|a| a.divide()).collect()).await
