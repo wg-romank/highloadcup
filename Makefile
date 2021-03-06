@@ -1,4 +1,4 @@
-REMOTE_TAG=invisible_frog
+REMOTE_TAG=tiger_hunter
 REMOTE_REPO=stor.highloadcup.ru/rally
 IMAGE_NAME=hlcup-rust
 

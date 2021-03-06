@@ -94,7 +94,7 @@ impl Accounting {
             }
         }
 
-        if self.active_licenses < 10 {
+        if self.active_licenses < 5 {
             let license = if let Some(c) = self.coins.pop() {
                 self.client.get_license(vec![c]).await
                     .map_err(|e| { self.coins.push(c); e })?

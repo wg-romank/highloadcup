@@ -224,8 +224,8 @@ fn main() -> () {
     let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
     let client = Client::new(&address);
 
-    let w = 3500 / n_workers;
-    let h = 3500;
+    let w = 350 / n_workers;
+    let h = 350;
 
     threaded_rt.block_on(
         join_all((0..n_workers).map(|i| {
