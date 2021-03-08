@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
+use rand::distributions::Distribution;
 
 use futures::future::join_all;
 
@@ -235,36 +236,98 @@ async fn _main(client: Client, started: Instant, areas: Vec<Area>) -> ClientResp
     }
 }
 
-fn main() -> () {
-    let n_workers: u64 = 4;
-    let threaded_rt = runtime::Builder::new_multi_thread()
-        .enable_all()
-        .worker_threads(n_workers as usize)
-        .build()
-        .expect("Could not build runtime");
-    let started = Instant::now();
-
-    println!("Started thread = {}", n_workers);
-
+#[tokio::main]
+async fn main() {
     let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
     let client = Client::new(&address);
 
-    let w = 3500 / n_workers;
-    let h = 3500;
+    let dist = rand::distributions::Uniform::new(0, 3500);
+    let mut rng = rand::thread_rng();
 
-    threaded_rt.block_on(
-        join_all((0..n_workers).map(|i| {
-            let client = client.clone();
-            threaded_rt.spawn(async move {
-                let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(client, started, area
-                    .divide()
-                    .iter()
-                    .flat_map(|a| a.divide()).collect()).await
-            })
-        }))
-    );
+    let num_samples: u32 = 10000;
+    let mut lic: Option<License> = None;
+
+    let mut hm = HashMap::new();
+
+    for _ in 0..num_samples {
+        let x = dist.sample(&mut rng);
+        let y = dist.sample(&mut rng);
+
+        if !hm.contains_key(&(x, y)) {
+            let ar = Area { pos_x: x, pos_y: y, size_x: 1, size_y: 1 };
+            let res = client.explore(&ar).await
+                .expect(&format!("failed to explore at {} {}", x, y));
+            if res.amount > 0 {
+                let mut cum_coins = 0;
+                let mut pd = PendingDig::new(x, y, res.amount);
+                loop {
+                    lic = Some(match lic {
+                        Some(l) if l.dig_used < l.dig_allowed => l,
+                        _ => loop {
+                            if let Some(lic) = client.get_license(vec![]).await.ok() {
+                                break lic
+                            }
+                        },
+                    }).and_then(|l| Some(License { dig_used: l.dig_used + 1, ..l }));
+                    let mut treasure = client.dig(&pd.to_dig(lic.unwrap().id)).await
+                        .expect(&format!("failed to dig at {} {}", x, y));
+                    let treasure_len = treasure.len();
+                    while let Some(t) = treasure.pop() {
+                        match client.cash(t.clone()).await {
+                            Ok(coins) => cum_coins += coins.len(),
+                            Err(_) => treasure.push(t),
+                        };
+                    };
+                    if let Some(ppd) = pd.next_level(treasure_len as u64) {
+                        pd = ppd;
+                    } else {
+                        break
+                    }
+                }
+                hm.insert((x, y), cum_coins);
+            };
+        }
+    }
+
+    let mut m = hm.into_iter().map(|(k, v)| (k.0, k.1, v))
+        .collect::<Vec<(u64, u64, usize)>>();
+    m.sort_by(|a, b| a.2.cmp(&b.2).reverse());
+
+    for kv in m.iter().take(100) {
+        println!("{} {} {}", kv.0, kv.1, kv.2);
+    }
 }
+
+// fn main() -> () {
+//     let n_workers: u64 = 4;
+//     let threaded_rt = runtime::Builder::new_multi_thread()
+//         .enable_all()
+//         .worker_threads(n_workers as usize)
+//         .build()
+//         .expect("Could not build runtime");
+//     let started = Instant::now();
+//
+//     println!("Started thread = {}", n_workers);
+//
+//     let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
+//     let client = Client::new(&address);
+//
+//     let w = 3500 / n_workers;
+//     let h = 3500;
+//
+//     threaded_rt.block_on(
+//         join_all((0..n_workers).map(|i| {
+//             let client = client.clone();
+//             threaded_rt.spawn(async move {
+//                 let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
+//                 _main(client, started, area
+//                     .divide()
+//                     .iter()
+//                     .flat_map(|a| a.divide()).collect()).await
+//             })
+//         }))
+//     );
+// }
 
 
 #[test]
