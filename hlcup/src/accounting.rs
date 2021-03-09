@@ -99,7 +99,7 @@ impl Accounting {
 
         if self.active_licenses < CONCURRENT_LICENSES {
             let license = if !self.coins.is_empty() {
-                if self.coins.len() < 1000 {
+                if self.coins.len() < 10000 {
                     let c = self.coins.pop().map(|c| vec![c]).unwrap_or(vec![]);
                     loop {
                         if let Some(lic) = self.client.get_license(c.clone()).await.ok() {
@@ -121,7 +121,9 @@ impl Accounting {
                             break lic
                         }
                     };
-                    println!("num coins {} -> digs allowed {}", coins.len(), lic.dig_allowed);
+                    if i == self.coins_to_use {
+                        println!("num coins {} -> digs allowed {}", coins.len(), lic.dig_allowed);
+                    }
                     self.coins_to_use += 1;
                     lic
                 }
