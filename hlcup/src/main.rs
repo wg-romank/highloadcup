@@ -30,6 +30,8 @@ use tokio::runtime;
 use tokio::time::timeout;
 use std::time::{Duration, Instant};
 use crate::constants::TIME_LIMIT_MS;
+use rusty_machine::linalg::{Matrix, Vector};
+use rusty_machine::learning::SupModel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PendingDig {
@@ -289,13 +291,25 @@ async fn main() {
         }
     }
 
-    let mut m = hm.into_iter().map(|(k, v)| (k.0, k.1, v))
-        .collect::<Vec<(u64, u64, usize)>>();
-    m.sort_by(|a, b| a.2.cmp(&b.2).reverse());
+    let samples = hm.iter().map(|(k, v)| (k.0, k.1, *v)).collect::<Vec<(u64, u64, usize)>>();
 
-    for kv in m.iter().take(100) {
-        println!("{} {} {}", kv.0, kv.1, kv.2);
-    }
+    let ds = Matrix::new(samples.len(), 2,
+                         samples.iter().flat_map(|(a, b, _)| vec![*a as f64, *b as f64]).collect::<Vec<f64>>());
+    let targets = Vector::new(samples.iter().map(|(_, _, c)| *c as f64).collect::<Vec<f64>>());
+
+
+    let mut gp = rusty_machine::learning::gp::GaussianProcess::default();
+    gp.train(&ds, &targets);
+
+    println!("{:#?}", gp.get_posterior(&ds).unwrap().0);
+
+    // let mut m = hm.into_iter().map(|(k, v)| (k.0, k.1, v))
+    //     .collect::<Vec<(u64, u64, usize)>>();
+    // m.sort_by(|a, b| a.2.cmp(&b.2).reverse());
+    //
+    // for kv in m.iter().take(100) {
+    //     println!("{} {} {}", kv.0, kv.1, kv.2);
+    // }
 }
 
 // fn main() -> () {
