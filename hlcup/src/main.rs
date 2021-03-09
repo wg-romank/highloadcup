@@ -196,10 +196,10 @@ async fn init_state(client: &Client, started: Instant, areas: Vec<Area>) -> Clie
         }
     };
 
-    println!("picking:");
-    for i in explore_heap.iter() {
-        println!("{}", i.hash())
-    }
+    // println!("picking:");
+    // for i in explore_heap.iter() {
+    //     println!("{}", i.hash())
+    // }
 
     Ok(explore_heap)
 }

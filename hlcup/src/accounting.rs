@@ -15,6 +15,7 @@ pub struct Accounting {
     rx: mpsc::Receiver<MessageForAccounting>,
     tx: mpsc::Sender<MessageFromAccounting>,
     treasures: BinaryHeap<Treasure>,
+    coins_to_use: u8,
     active_licenses: u8,
     licenses: Vec<License>,
     coins: Vec<u64>,
@@ -40,6 +41,7 @@ impl Accounting {
             rx: rx,
             tx: tx,
             treasures: BinaryHeap::new(),
+            coins_to_use: 0,
             active_licenses: 0,
             licenses: vec![],
             coins: vec![],
@@ -96,9 +98,33 @@ impl Accounting {
         }
 
         if self.active_licenses < CONCURRENT_LICENSES {
-            let license = if let Some(c) = self.coins.pop() {
-                self.client.get_license(vec![c]).await
-                    .map_err(|e| { self.coins.push(c); e })?
+            let license = if !self.coins.is_empty() {
+                if self.coins.len() < 1000 {
+                    let c = self.coins.pop().map(|c| vec![c]).unwrap_or(vec![]);
+                    loop {
+                        if let Some(lic) = self.client.get_license(c.clone()).await.ok() {
+                            break lic
+                        }
+                    }
+                } else {
+                    let mut i = 0;
+                    let mut coins = vec![];
+                    while let Some(c) = self.coins.pop() {
+                        coins.push(c);
+                        i += 1;
+                        if i == self.coins_to_use {
+                            break;
+                        }
+                    }
+                    let lic = loop {
+                        if let Some(lic) = self.client.get_license(coins.clone()).await.ok() {
+                            break lic
+                        }
+                    };
+                    println!("num coins {} -> digs allowed {}", coins.len(), lic.dig_allowed);
+                    self.coins_to_use += 1;
+                    lic
+                }
             } else {
                 self.client.get_license(vec![]).await?
             };
