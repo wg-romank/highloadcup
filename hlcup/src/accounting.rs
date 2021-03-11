@@ -55,17 +55,6 @@ impl Accounting {
         // println!("[accounting]: {}", message);
     }
 
-    async fn send_lic(licenses: &mut Vec<License>, tx: mpsc::Sender<MessageFromAccounting>) {
-        if let Some(lic) = licenses.pop() {
-            tokio::spawn(
-                async move {
-                    tx.send(MessageFromAccounting::LicenseToUse(lic)).await
-                        .map_err(|e| panic!("tx send err {}", e))
-                }
-            );
-        }
-    }
-
     fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
         t.treasures.into_iter().map(move |tt| {
             let cl = client.clone();
@@ -81,24 +70,27 @@ impl Accounting {
         }).collect()
     }
 
-    pub async fn main(&mut self) -> ClientResponse<()> {
+    pub async fn main(&mut self) {
         while let Some(message) = self.rx.recv().await {
             match message {
                 MessageForAccounting::TreasureToClaim(tid) => { self.treasures.push(tid); },
                 MessageForAccounting::LicenseExpired => { self.active_licenses -= 1; },
                 MessageForAccounting::Continue => {
-                    self.purchase_license().await;
-                    Accounting::send_lic(&mut self.licenses, self.tx.clone()).await;
+                    self.update_state().await;
+
+                    if let Some(lic) = self.licenses.pop() {
+                        self.tx.send(MessageFromAccounting::LicenseToUse(lic)).await
+                            .map_err(|e| panic!("failed to send licesse {}", e));
+                    }
+
                     self.selftx.send(MessageForAccounting::Continue).await
                         .map_err(|e| panic!("failed to continue {}", e));
                 }
             }
-        };
-
-        Ok(())
+        }
     }
 
-    async fn purchase_license(&mut self) {
+    async fn update_state(&mut self) {
         let cc= Accounting::claim_treasures(&self.client, &mut self.treasures)
             .collect::<Vec<Vec<u64>>>().await;
         let ccc = cc.into_iter().flatten().collect::<Vec<u64>>();
