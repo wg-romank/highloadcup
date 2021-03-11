@@ -87,6 +87,14 @@ impl Client {
 
     }
 
+    pub async fn plain_license(&self, coins: Vec<u64>) -> License {
+        loop {
+            if let Some(lic) = self.get_license(coins.clone()).await.ok() {
+                break lic
+            }
+        }
+    }
+
     pub async fn dig(&self, dig: &Dig) -> ClientResponse<Vec<String>> {
         let response = self.client.post(&self.dig_url)
             .json(dig)

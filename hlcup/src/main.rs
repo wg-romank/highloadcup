@@ -196,10 +196,10 @@ async fn init_state(client: &Client, started: Instant, areas: Vec<Area>) -> Clie
         }
     };
 
-    println!("picking:");
-    for i in explore_heap.iter() {
-        println!("{}", i.hash())
-    }
+    // println!("picking:");
+    // for i in explore_heap.iter() {
+    //     println!("{}", i.hash())
+    // }
 
     Ok(explore_heap)
 }
@@ -214,8 +214,10 @@ async fn _main(client: Client, started: Instant, areas: Vec<Area>) -> ClientResp
     let (tx_from_accounting, mut rx_from_accounting) = mpsc::channel(20);
     let (tx, rx_for_accounting) = mpsc::channel(1000);
     let cl = client.clone();
+    let ttx = tx.clone();
+    tx.send(MessageForAccounting::Continue).await;
     tokio::spawn(async move {
-        Accounting::new(cl, rx_for_accounting, tx_from_accounting).main().await
+        Accounting::new(cl, rx_for_accounting, ttx, tx_from_accounting).main().await
     });
 
     loop {
