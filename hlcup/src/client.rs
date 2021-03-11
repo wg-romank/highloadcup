@@ -109,6 +109,14 @@ impl Client {
         }
     }
 
+    pub async fn plain_cash(&self, treasure: String) -> Vec<u64> {
+        loop {
+            if let Some(coins) = self.cash(treasure.clone()).await.ok() {
+                break coins
+            }
+        }
+    }
+
     pub async fn cash(&self, treasure: String) -> ClientResponse<Vec<u64>> {
         let response = self.client.post(&self.cash_url)
             .json(&treasure)

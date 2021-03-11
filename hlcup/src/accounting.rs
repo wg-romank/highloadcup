@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use crate::constants::CONCURRENT_LICENSES;
+use futures::{Future, FutureExt, StreamExt};
 
 pub struct Accounting {
     client: Client,
@@ -59,6 +60,22 @@ impl Accounting {
         );
     }
 
+    fn claim_treasure(client: Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
+        t.treasures.into_iter().map(move |tt| {
+            let cl = client.clone();
+            tokio::spawn(async move {
+                cl.plain_cash(tt).await
+            }).map(|r| r.ok().unwrap_or(vec![]))
+        }).collect()
+    }
+
+    fn claim_treasures(&mut self) -> FuturesUnordered<impl Future<Output = Vec<u64>>> {
+        let client = self.client.clone();
+        self.treasures.drain().flat_map(move |t| {
+            Accounting::claim_treasure(client.clone(), t)
+        }).collect()
+    }
+
     pub async fn main(&mut self) -> ClientResponse<()> {
         loop {
             if let Some(lic) = self.licenses.pop() {
@@ -83,17 +100,8 @@ impl Accounting {
 
     async fn step(&mut self) -> ClientResponse<()> {
         // todo: tradeoff between claiming and getting new licenses
-        if let Some(pending_cash) = self.treasures.pop() {
-            for treasure in pending_cash.treasures.into_iter() {
-                match self.client.cash(treasure.clone()).await {
-                    Ok(got_coins) => self.coins.extend(got_coins),
-                    Err(e) => {
-                        Accounting::accounting_log(e.to_string());
-                        self.treasures.push(Treasure { depth: pending_cash.depth, treasures: vec![treasure]})
-                    }
-                };
-            }
-        }
+        self.claim_treasures().collect::<Vec<Vec<u64>>>().await
+            .into_iter().for_each(|ar| self.coins.extend(ar));
 
         if self.active_licenses < CONCURRENT_LICENSES {
             let license = if let Some(c) = self.coins.pop() {
@@ -108,4 +116,24 @@ impl Accounting {
 
         Ok(())
     }
+}
+
+use futures::stream::FuturesUnordered;
+
+async fn do_work(i: usize) -> Result<String, Vec<u64>> {
+    unimplemented!()
+}
+
+async fn do_work_plain(i: usize) -> Vec<u64> {
+    unimplemented!()
+}
+
+
+// async fn claim(&mut self) -> Vec<Box<dyn Future<Output = ClientResponse<License>>>> {
+// fn compose_work(n: usize) -> Vec<Box<dyn Future<Output=Result<String, u64>>>> {
+//    (0..n).map(|i| Box::new(do_work(i))).collect()
+// }
+
+fn compose_work(n: usize) -> FuturesUnordered<impl Future> {
+    (0..n).map(|i| do_work_plain(i)).collect()
 }
