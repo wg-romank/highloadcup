@@ -96,6 +96,7 @@ impl Accounting {
         let ccc = cc.into_iter().flatten().collect::<Vec<u64>>();
         self.coins.extend(ccc);
 
+        // todo: join with futures unordered
         if self.active_licenses < CONCURRENT_LICENSES {
             let lic = if let Some(c) = self.coins.pop() {
                 self.client.plain_license(vec![c])
