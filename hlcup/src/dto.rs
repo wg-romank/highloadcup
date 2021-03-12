@@ -119,6 +119,10 @@ pub struct License {
     pub dig_used: u8,
 }
 
+impl License {
+    pub fn is_still_valid(&self) -> bool { self.dig_allowed > self.dig_used }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Dig {
@@ -183,4 +187,17 @@ fn test_area_divide() {
         c.divide(),
         vec![c]
     )
+}
+
+#[test]
+fn test_explore_ord() {
+    use std::collections::BinaryHeap;
+    let mut hp = BinaryHeap::new();
+    hp.push(Explore { area: Area { pos_x: 0, pos_y: 0, size_x: 100, size_y: 100 }, amount: 10 });
+    hp.push(Explore { area: Area { pos_x: 0, pos_y: 0, size_x: 10, size_y: 10 }, amount: 10 });
+    hp.push(Explore { area: Area { pos_x: 0, pos_y: 0, size_x: 1, size_y: 1 }, amount: 3 });
+
+    assert_eq!(hp.pop().unwrap().area.size(), 1);
+    assert_eq!(hp.pop().unwrap().area.size(), 100);
+    assert_eq!(hp.pop().unwrap().area.size(), 10000);
 }

@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use crate::dto::Dig;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Treasure {
@@ -19,6 +20,54 @@ impl PartialOrd for Treasure {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingDig {
+    pub x: u64,
+    pub y: u64,
+    pub depth: u8,
+    pub remaining: u64,
+}
+
+impl PendingDig {
+    pub fn new(x: u64, y: u64, remaining: u64) -> PendingDig {
+        PendingDig { x, y, depth: 1, remaining }
+    }
+
+    pub fn to_dig(&self, license_id: u64) -> Dig {
+        Dig {
+            license_id: license_id,
+            pos_x: self.x,
+            pos_y: self.y,
+            depth: self.depth,
+        }
+    }
+
+    pub fn next_level(&self, excavated: u64) -> Option<PendingDig> {
+        if self.depth < 10 && self.remaining > excavated {
+            Some(PendingDig {
+                depth: self.depth + 1,
+                remaining: self.remaining - excavated,
+                ..*self
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl Ord for PendingDig {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.remaining * self.depth as u64)
+            .cmp(&(other.remaining * other.depth as u64))
+    }
+}
+
+impl PartialOrd for PendingDig {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
 #[test]
 fn test_treasure_ord() {
     use std::collections::BinaryHeap;
@@ -31,3 +80,16 @@ fn test_treasure_ord() {
     assert_eq!(hp.pop().unwrap().depth, 1);
 }
 
+
+#[test]
+fn test_dig_ord() {
+    use std::collections::BinaryHeap;
+    let mut hp = BinaryHeap::new();
+    hp.push(PendingDig { x: 1, y: 0, depth: 2, remaining: 11 });
+    hp.push(PendingDig { x: 3, y: 0, depth: 2, remaining: 10 });
+    hp.push(PendingDig { x: 2, y: 0, depth: 1, remaining: 10 });
+
+    assert_eq!(hp.pop().unwrap().x, 1);
+    assert_eq!(hp.pop().unwrap().x, 3);
+    assert_eq!(hp.pop().unwrap().x, 2);
+}

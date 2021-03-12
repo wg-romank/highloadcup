@@ -1,11 +1,10 @@
 use crate::client::Client;
-use crate::client::ClientResponse;
 use crate::model::Treasure;
 use crate::dto::License;
 
 use std::collections::BinaryHeap;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use futures::{Future, FutureExt, StreamExt};
 use futures::stream::FuturesUnordered;
 
@@ -15,7 +14,6 @@ pub struct Accounting {
     client: Client,
     rx: mpsc::Receiver<MessageForAccounting>,
     selftx: mpsc::Sender<MessageForAccounting>,
-    tx: mpsc::Sender<MessageFromAccounting>,
     treasures: BinaryHeap<Treasure>,
     active_licenses: u8,
     licenses: Vec<License>,
@@ -24,12 +22,9 @@ pub struct Accounting {
 
 pub enum MessageForAccounting {
     TreasureToClaim(Treasure),
+    GetLicense(oneshot::Sender<Vec<License>>),
     LicenseExpired,
     Continue,
-}
-
-pub enum MessageFromAccounting {
-    LicenseToUse(License)
 }
 
 impl Accounting {
@@ -37,13 +32,11 @@ impl Accounting {
         client: Client,
         rx: mpsc::Receiver<MessageForAccounting>,
         selftx: mpsc::Sender<MessageForAccounting>,
-        tx: mpsc::Sender<MessageFromAccounting>,
     ) -> Accounting {
         Accounting {
             client: client,
             rx: rx,
             selftx: selftx,
-            tx: tx,
             treasures: BinaryHeap::new(),
             active_licenses: 0,
             licenses: vec![],
@@ -51,11 +44,7 @@ impl Accounting {
         }
     }
 
-    fn accounting_log(_message: String) {
-        // println!("[accounting]: {}", message);
-    }
-
-    fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
+    fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output=Vec<u64>>> {
         t.treasures.into_iter().map(move |tt| {
             let cl = client.clone();
             tokio::spawn(async move {
@@ -64,32 +53,14 @@ impl Accounting {
         }).collect()
     }
 
-    fn claim_treasures(client: &Client, treasures: &mut BinaryHeap<Treasure>) -> FuturesUnordered<impl Future<Output = Vec<u64>>> {
+    fn claim_treasures(client: &Client, treasures: &mut BinaryHeap<Treasure>) -> FuturesUnordered<impl Future<Output=Vec<u64>>> {
         treasures.drain().flat_map(move |t| {
             Accounting::claim_treasure(client, t)
         }).collect()
     }
+}
 
-    pub async fn main(&mut self) {
-        while let Some(message) = self.rx.recv().await {
-            match message {
-                MessageForAccounting::TreasureToClaim(tid) => { self.treasures.push(tid); },
-                MessageForAccounting::LicenseExpired => { self.active_licenses -= 1; },
-                MessageForAccounting::Continue => {
-                    self.update_state().await;
-
-                    if let Some(lic) = self.licenses.pop() {
-                        self.tx.send(MessageFromAccounting::LicenseToUse(lic)).await
-                            .map_err(|e| panic!("failed to send licesse {}", e));
-                    }
-
-                    self.selftx.send(MessageForAccounting::Continue).await
-                        .map_err(|e| panic!("failed to continue {}", e));
-                }
-            }
-        }
-    }
-
+impl Accounting {
     async fn update_state(&mut self) {
         let cc= Accounting::claim_treasures(&self.client, &mut self.treasures)
             .collect::<Vec<Vec<u64>>>().await;
@@ -106,5 +77,42 @@ impl Accounting {
             self.licenses.push(lic);
             self.active_licenses += 1;
         };
+    }
+
+    pub async fn run(&mut self) {
+        while let Some(message) = self.rx.recv().await {
+            match message {
+                MessageForAccounting::TreasureToClaim(tid) => { self.treasures.push(tid); },
+                MessageForAccounting::LicenseExpired => { self.active_licenses -= 1; },
+                MessageForAccounting::GetLicense(tx) => {
+                    tx.send(self.licenses.clone()).expect("failed to send licenses to worker");
+                    self.licenses.clear();
+                }
+                MessageForAccounting::Continue => {
+                    self.update_state().await;
+                    assert!(self.selftx.send(MessageForAccounting::Continue).await.is_ok(), "failed to send continue");
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AccountingHandle {
+    pub sender: mpsc::Sender<MessageForAccounting>,
+}
+
+impl AccountingHandle {
+    pub fn new(client: &Client) -> Self {
+        let (tx, rx) = mpsc::channel(1000);
+        let cl = client.clone();
+
+        let tx_clone = tx.clone();
+        tokio::spawn(async move {
+            assert!(tx_clone.send(MessageForAccounting::Continue).await.is_ok(), "failed to start accounting");
+            Accounting::new(cl, rx, tx_clone).run().await
+        });
+
+        Self { sender: tx }
     }
 }
