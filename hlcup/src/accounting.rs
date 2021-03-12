@@ -45,10 +45,11 @@ impl Accounting {
     }
 
     fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output=Vec<u64>>> {
+        let depth = t.depth;
         t.treasures.into_iter().map(move |tt| {
             let cl = client.clone();
             tokio::spawn(async move {
-                cl.plain_cash(tt).await
+                cl.plain_cash(depth, tt).await
             }).map(|r| r.ok().unwrap_or(vec![]))
         }).collect()
     }

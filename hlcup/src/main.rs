@@ -4,6 +4,7 @@ mod accounting;
 mod model;
 mod constants;
 mod worker;
+mod stats;
 
 use std::time::Instant;
 
@@ -17,17 +18,17 @@ use dto::*;
 
 use accounting::AccountingHandle;
 use worker::Worker;
+use crate::stats::{StatsHandler, StatsMessage};
+use tokio::time::Duration;
 
 
-async fn _main(client: Client, started: Instant, areas: Vec<Area>) -> ClientResponse<()> {
+async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
     let accounting_handle = AccountingHandle::new(&client);
 
     Worker::new(client.clone(), started, areas, accounting_handle)
         .await
         .run()
-        .await;
-
-    Ok(())
+        .await
 }
 
 fn main() -> () {
@@ -42,7 +43,16 @@ fn main() -> () {
     println!("Started thread = {}", n_workers);
 
     let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
-    let client = Client::new(&address);
+    let stats_hanlder = StatsHandler::new(&threaded_rt);
+    let client = Client::new(&address, stats_hanlder.tx.clone());
+
+    // todo: nicer way
+    threaded_rt.spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(500)).await;
+            stats_hanlder.tx.send(StatsMessage::ShowStats).await;
+        }
+    });
 
     let w = 3500 / n_workers;
     let h = 3500;
