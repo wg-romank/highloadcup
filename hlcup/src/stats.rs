@@ -59,6 +59,7 @@ pub struct Stats {
     cash_at_depth: EpMetric,
     license: EpMetric,
     licenses_per_coins: BTreeMap<u64, u64>,
+    digs_allowed_total: u64,
     explore: EpMetric,
     digs_with_found: HashMap<(u64, u64), u8>,
 }
@@ -139,6 +140,7 @@ impl std::fmt::Display for Stats {
         write!(f, "cash: {}", self.cash)?;
         write!(f, "cash at depth: {}\n", self.cash_at_depth)?;
 
+        write!(f, "digs allowed total: {}\n", self.digs_allowed_total)?;
         write!(f, "license: \n{}", self.license)?;
         let lic_stats = self.licenses_per_coins
             .iter()
@@ -160,7 +162,8 @@ impl Stats {
         cash_at_depth: EpMetric::new(),
         license: EpMetric::new(),
         explore: EpMetric::new(),
-        digs_with_found: HashMap::new()
+        digs_with_found: HashMap::new(),
+        digs_allowed_total: 0,
     } }
 
     fn record_dig(&mut self, duration: u64, x: u64, y: u64, depth: u8, found: bool, err: Option<StatusCode>) {
@@ -181,11 +184,12 @@ impl Stats {
         self.cash_at_depth.inc(depth, amount, err);
     }
 
-    fn record_license(&mut self, duration: u64, coins: u64, _allowed: u8, err: Option<StatusCode>) {
+    fn record_license(&mut self, duration: u64, coins: u64, allowed: u8, err: Option<StatusCode>) {
         self.total += 1.;
         self.license.inc(0, duration, err);
         if err.is_none() {
             *self.licenses_per_coins.entry(coins).or_insert(0) += 1;
+            self.digs_allowed_total += allowed as u64;
         }
     }
 

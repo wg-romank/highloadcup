@@ -33,7 +33,7 @@ async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
 }
 
 fn main() -> () {
-    let n_workers: u64 = 4;
+    let n_workers: u64 = 5;
     let threaded_rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(n_workers as usize)
