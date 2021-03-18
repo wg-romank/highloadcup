@@ -15,6 +15,7 @@ pub struct Accounting {
     rx: mpsc::Receiver<MessageForAccounting>,
     selftx: mpsc::Sender<MessageForAccounting>,
     treasures: BinaryHeap<Treasure>,
+    coins_to_use: usize,
     active_licenses: u8,
     licenses: Vec<License>,
     coins: Vec<u64>,
@@ -38,6 +39,7 @@ impl Accounting {
             rx: rx,
             selftx: selftx,
             treasures: BinaryHeap::new(),
+            coins_to_use: 2,
             active_licenses: 0,
             licenses: vec![],
             coins: vec![],
@@ -70,7 +72,13 @@ impl Accounting {
 
         // todo: join with futures unordered
         if self.active_licenses < CONCURRENT_LICENSES {
-            let lic = if let Some(c) = self.coins.pop() {
+            let lic = if self.coins.len() > 1000 {
+                let cc = self.coins.drain(0..self.coins_to_use).collect::<Vec<u64>>();
+                if self.coins_to_use < 50 {
+                    self.coins_to_use += 1;
+                };
+                self.client.plain_license(cc)
+            } else if let Some(c) = self.coins.pop() {
                 self.client.plain_license(vec![c])
             } else {
                 self.client.plain_license(vec![])

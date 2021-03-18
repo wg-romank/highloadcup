@@ -84,6 +84,7 @@ impl Client {
 
     pub async fn get_license(&self, coins: Vec<u64>) -> ClientResponse<License> {
         let now = Instant::now();
+        let l = coins.len() as u64;
         let response = self.client.post(&self.licenses_url)
             .json(&coins)
             .send()
@@ -92,11 +93,12 @@ impl Client {
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats_handler.send(RecordLicense { duration: elapsed, status: None}).await;
-                Ok(response.json::<License>().await?)
+                let lic = response.json::<License>().await?;
+                self.stats_handler.send(RecordLicense { duration: elapsed, coins: l, allowed: lic.dig_allowed,  status: None}).await;
+                Ok(lic)
             },
             status => {
-                self.stats_handler.send(RecordLicense { duration: elapsed, status: Some(status)}).await;
+                self.stats_handler.send(RecordLicense { duration: elapsed, coins: l, allowed: 0, status: Some(status)}).await;
                 Err(DescriptiveError::new("license",status, response.text().await?))
             },
         }

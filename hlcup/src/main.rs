@@ -50,7 +50,7 @@ fn main() -> () {
     // todo: nicer way
     threaded_rt.spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(400)).await;
+            tokio::time::sleep(Duration::from_secs(550)).await;
             stats_hanlder.tx.send(StatsMessage::ShowStats).await;
         }
     });

@@ -5,6 +5,7 @@ use histogram::Histogram;
 use tokio::runtime::Runtime;
 use base64::display::Base64Display;
 use deflate::{deflate_bytes, deflate_bytes_conf, Compression};
+use crate::dto::License;
 
 
 pub enum StatsMessage {
@@ -12,7 +13,7 @@ pub enum StatsMessage {
     RecordExplore {area_size: u64, duration: u64, status: Option<StatusCode> },
     RecordDig {depth: u8, x: u64, y: u64, duration: u64, found: bool, status: Option<StatusCode>},
     RecordCash {depth: u8, amount: u64, duration: u64, status: Option<StatusCode> },
-    RecordLicense { duration: u64, status: Option<StatusCode> },
+    RecordLicense { duration: u64, coins: u64, allowed: u8, status: Option<StatusCode> },
 }
 
 pub struct StatsHandler {
@@ -43,7 +44,7 @@ impl StatsActor {
                 RecordExplore { area_size, duration, status } => self.stats.record_explore(area_size, duration, status),
                 RecordDig { depth, x, y, duration, found, status } => self.stats.record_dig(duration, x, y, depth, found, status),
                 RecordCash { duration, depth, amount, status } => self.stats.record_cash(duration, depth, amount, status),
-                RecordLicense { duration, status } => self.stats.record_license(duration, status),
+                RecordLicense { duration, coins, allowed, status } => self.stats.record_license(duration, coins, allowed, status),
             }
         }
     }
@@ -57,6 +58,7 @@ pub struct Stats {
     cash: EpMetric,
     cash_at_depth: EpMetric,
     license: EpMetric,
+    licenses_per_coins: BTreeMap<u64, (u8, u8)>,
     explore: EpMetric,
     digs_with_found: HashMap<(u64, u64), u8>,
 }
@@ -137,7 +139,13 @@ impl std::fmt::Display for Stats {
         write!(f, "cash: {}", self.cash)?;
         write!(f, "cash at depth: {}\n", self.cash_at_depth)?;
 
-        write!(f, "license: {}", self.license)
+        write!(f, "license: \n{}", self.license)?;
+        let lic_stats = self.licenses_per_coins
+            .iter()
+            .map(|(k, v)| format!("{} - ({}, {})", k, v.0, v.1))
+            .collect::<Vec<String>>()
+            .join("\n");
+        write!(f, "license per coins: {}", lic_stats)
     }
 }
 
@@ -147,6 +155,7 @@ impl Stats {
         dig: EpMetric::new(),
         dig_found: 0.,
         dig_found_per_depth: BTreeMap::new(),
+        licenses_per_coins: BTreeMap::new(),
         cash: EpMetric::new(),
         cash_at_depth: EpMetric::new(),
         license: EpMetric::new(),
@@ -172,9 +181,13 @@ impl Stats {
         self.cash_at_depth.inc(depth, amount, err);
     }
 
-    fn record_license(&mut self, duration: u64, err: Option<StatusCode>) {
+    fn record_license(&mut self, duration: u64, coins: u64, allowed: u8, err: Option<StatusCode>) {
         self.total += 1.;
         self.license.inc(0, duration, err);
+        if err.is_none() {
+            let mut e = self.licenses_per_coins.entry(coins).or_insert((allowed, allowed));
+            *e = (u8::min(e.0, allowed), u8::max(e.1, allowed));
+        }
     }
 
     fn record_explore(&mut self, area_size: u64, duration: u64, err: Option<StatusCode>) {
