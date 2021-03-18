@@ -15,3 +15,4 @@ tokio = { version = "1", features = ["full"] }
 histogram = "*"
 base64 = "*"
 deflate = "*"
+lazy_static = "*"

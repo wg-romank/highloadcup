@@ -7,7 +7,7 @@ use crate::accounting::{MessageForAccounting, AccountingHandle};
 use crate::dto::{License, Explore, Area};
 use crate::client::{Client, ClientResponse};
 use crate::model::{Treasure, PendingDig};
-use crate::constants::TIME_LIMIT_MS;
+use crate::constants::{TIME_LIMIT_MS, MAX_DEPTH};
 
 pub struct Worker {
     client: Client,
@@ -130,7 +130,7 @@ impl Worker {
                 if lic.is_still_valid() {
                     self.licenses.push(lic)
                 } else {
-                    self.accounting_handle.sender.send(MessageForAccounting::LicenseExpired).await;
+                    self.accounting_handle.sender.send(MessageForAccounting::LicenseExpired(self.pending_digs())).await;
                 }
             } else {
                 self.dig_heap.push(pending_dig);
@@ -141,5 +141,9 @@ impl Worker {
         };
 
         Ok(())
+    }
+
+    fn pending_digs(&self) -> u64 {
+        self.dig_heap.iter().map(|pd| MAX_DEPTH + 1 - pd.depth as u64).sum()
     }
 }

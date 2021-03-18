@@ -58,7 +58,7 @@ pub struct Stats {
     cash: EpMetric,
     cash_at_depth: EpMetric,
     license: EpMetric,
-    licenses_per_coins: BTreeMap<u64, (u8, u8)>,
+    licenses_per_coins: BTreeMap<u64, u64>,
     explore: EpMetric,
     digs_with_found: HashMap<(u64, u64), u8>,
 }
@@ -142,7 +142,7 @@ impl std::fmt::Display for Stats {
         write!(f, "license: \n{}", self.license)?;
         let lic_stats = self.licenses_per_coins
             .iter()
-            .map(|(k, v)| format!("{} - ({}, {})", k, v.0, v.1))
+            .map(|(k, v)| format!("{} - {}", k, v))
             .collect::<Vec<String>>()
             .join("\n");
         write!(f, "license per coins: {}", lic_stats)
@@ -181,12 +181,11 @@ impl Stats {
         self.cash_at_depth.inc(depth, amount, err);
     }
 
-    fn record_license(&mut self, duration: u64, coins: u64, allowed: u8, err: Option<StatusCode>) {
+    fn record_license(&mut self, duration: u64, coins: u64, _allowed: u8, err: Option<StatusCode>) {
         self.total += 1.;
         self.license.inc(0, duration, err);
         if err.is_none() {
-            let mut e = self.licenses_per_coins.entry(coins).or_insert((allowed, allowed));
-            *e = (u8::min(e.0, allowed), u8::max(e.1, allowed));
+            *self.licenses_per_coins.entry(coins).or_insert(0) += 1;
         }
     }
 

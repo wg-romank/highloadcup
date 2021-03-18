@@ -2,20 +2,36 @@ use crate::client::Client;
 use crate::model::Treasure;
 use crate::dto::License;
 
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 
 use tokio::sync::{mpsc, oneshot};
 use futures::{Future, FutureExt, StreamExt};
 use futures::stream::FuturesUnordered;
 
+use lazy_static::lazy_static;
+
 use crate::constants::CONCURRENT_LICENSES;
+
+const COINS_MAX: usize = 21;
+
+lazy_static! {
+    // todo: add max value?
+    static ref COINS: HashMap<usize, u64> = vec![
+        (0, 3),
+        (1, 5),
+        (6, 10),
+        (11, 20),
+        (21, 40),
+    ].into_iter().collect();
+}
 
 pub struct Accounting {
     client: Client,
     rx: mpsc::Receiver<MessageForAccounting>,
     selftx: mpsc::Sender<MessageForAccounting>,
     treasures: BinaryHeap<Treasure>,
-    coins_to_use: usize,
+    // coins_to_use: usize,
+    digs_pending: u64,
     active_licenses: u8,
     licenses: Vec<License>,
     coins: Vec<u64>,
@@ -24,7 +40,7 @@ pub struct Accounting {
 pub enum MessageForAccounting {
     TreasureToClaim(Treasure),
     GetLicense(oneshot::Sender<Vec<License>>),
-    LicenseExpired,
+    LicenseExpired(u64),
     Continue,
 }
 
@@ -39,7 +55,8 @@ impl Accounting {
             rx: rx,
             selftx: selftx,
             treasures: BinaryHeap::new(),
-            coins_to_use: 2,
+            // coins_to_use: 2,
+            digs_pending: 0,
             active_licenses: 0,
             licenses: vec![],
             coins: vec![],
@@ -73,10 +90,15 @@ impl Accounting {
         // todo: join with futures unordered
         if self.active_licenses < CONCURRENT_LICENSES {
             let lic = if self.coins.len() > 1000 {
-                let cc = self.coins.drain(0..self.coins_to_use).collect::<Vec<u64>>();
-                if self.coins_to_use < 50 {
-                    self.coins_to_use += 1;
-                };
+                let coins_to_use = COINS
+                    .iter()
+                    .find(|(&k, &v)| v >= self.digs_pending )
+                    .map(|(&k, _)| k)
+                    .unwrap_or(COINS_MAX) as usize;
+                let cc = self.coins.drain(0..coins_to_use).collect::<Vec<u64>>();
+                // if self.coins_to_use < 50 {
+                //     self.coins_to_use += 1;
+                // };
                 self.client.plain_license(cc)
             } else if let Some(c) = self.coins.pop() {
                 self.client.plain_license(vec![c])
@@ -92,7 +114,10 @@ impl Accounting {
         while let Some(message) = self.rx.recv().await {
             match message {
                 MessageForAccounting::TreasureToClaim(tid) => { self.treasures.push(tid); },
-                MessageForAccounting::LicenseExpired => { self.active_licenses -= 1; },
+                MessageForAccounting::LicenseExpired(digs_pending) => {
+                    self.active_licenses -= 1;
+                    self.digs_pending = digs_pending
+                },
                 MessageForAccounting::GetLicense(tx) => {
                     tx.send(self.licenses.clone()).expect("failed to send licenses to worker");
                     self.licenses.clear();

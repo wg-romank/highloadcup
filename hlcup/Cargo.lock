@@ -265,6 +265,7 @@ dependencies = [
  "deflate",
  "futures",
  "histogram",
+ "lazy_static",
  "rand",
  "reqwest",
  "serde",
