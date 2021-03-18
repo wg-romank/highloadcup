@@ -72,10 +72,10 @@ impl Worker {
             }
         };
 
-        println!("picking:");
-        for i in explore_heap.iter() {
-            println!("{}", i.hash())
-        }
+        // println!("picking:");
+        // for i in explore_heap.iter() {
+        //     println!("{}", i.hash())
+        // }
 
         Ok(explore_heap)
     }

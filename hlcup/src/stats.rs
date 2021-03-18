@@ -1,14 +1,16 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, HashMap};
 use reqwest::StatusCode;
 use tokio::sync::mpsc;
 use histogram::Histogram;
 use tokio::runtime::Runtime;
+use base64::display::Base64Display;
+use deflate::{deflate_bytes, deflate_bytes_conf, Compression};
 
 
 pub enum StatsMessage {
     ShowStats,
     RecordExplore {area_size: u64, duration: u64, status: Option<StatusCode> },
-    RecordDig {depth: u8, duration: u64, found: bool, status: Option<StatusCode>},
+    RecordDig {depth: u8, x: u64, y: u64, duration: u64, found: bool, status: Option<StatusCode>},
     RecordCash {depth: u8, amount: u64, duration: u64, status: Option<StatusCode> },
     RecordLicense { duration: u64, status: Option<StatusCode> },
 }
@@ -39,7 +41,7 @@ impl StatsActor {
             match msg {
                 ShowStats => println!("{}", self.stats),
                 RecordExplore { area_size, duration, status } => self.stats.record_explore(area_size, duration, status),
-                RecordDig { depth, duration, found, status } => self.stats.record_dig(duration, depth, found, status),
+                RecordDig { depth, x, y, duration, found, status } => self.stats.record_dig(duration, x, y, depth, found, status),
                 RecordCash { duration, depth, amount, status } => self.stats.record_cash(duration, depth, amount, status),
                 RecordLicense { duration, status } => self.stats.record_license(duration, status),
             }
@@ -56,6 +58,7 @@ pub struct Stats {
     cash_at_depth: EpMetric,
     license: EpMetric,
     explore: EpMetric,
+    digs_with_found: HashMap<(u64, u64), u8>,
 }
 
 pub struct EpMetric {
@@ -113,6 +116,14 @@ impl std::fmt::Display for EpMetric {
 
 impl std::fmt::Display for Stats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // let mut contents = String::new();
+        // println!("size {}", self.digs_with_found.len());
+        // for (coord, count) in self.digs_with_found.iter() {
+        //     contents.push_str(format!("[{},{}:{}]\n", coord.0, coord.1, count).as_str());
+        // }
+        // let byt = deflate_bytes_conf(contents.as_bytes(), Compression::Best);
+        // let encoded = Base64Display::with_config(&byt, base64::STANDARD);
+        // write!(f, "{}", encoded)
         write!(f, "total: {}\n", self.total)?;
         write!(f, "explore: {}", self.explore)?;
 
@@ -140,9 +151,10 @@ impl Stats {
         cash_at_depth: EpMetric::new(),
         license: EpMetric::new(),
         explore: EpMetric::new(),
+        digs_with_found: HashMap::new()
     } }
 
-    fn record_dig(&mut self, duration: u64, depth: u8, found: bool, err: Option<StatusCode>) {
+    fn record_dig(&mut self, duration: u64, x: u64, y: u64, depth: u8, found: bool, err: Option<StatusCode>) {
         self.total += 1.;
         self.dig.inc(depth, duration, err);
 
@@ -150,6 +162,7 @@ impl Stats {
         if found {
             self.dig_found += 1.;
             self.dig_found_per_depth.entry(depth).or_insert((0., 0.)).1 += 1.;
+            *self.digs_with_found.entry((x, y)).or_insert(0) += 1;
         }
     }
 

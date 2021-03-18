@@ -20,6 +20,7 @@ use accounting::AccountingHandle;
 use worker::Worker;
 use crate::stats::{StatsHandler, StatsMessage};
 use tokio::time::Duration;
+use base64::display::Base64Display;
 
 
 async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
@@ -49,7 +50,7 @@ fn main() -> () {
     // todo: nicer way
     threaded_rt.spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(500)).await;
+            tokio::time::sleep(Duration::from_secs(400)).await;
             stats_hanlder.tx.send(StatsMessage::ShowStats).await;
         }
     });

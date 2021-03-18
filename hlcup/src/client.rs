@@ -113,15 +113,15 @@ impl Client {
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats_handler.send(RecordDig { depth: dig.depth, found: true, duration: elapsed, status: None}).await;
+                self.stats_handler.send(RecordDig { depth: dig.depth, x: dig.pos_x, y: dig.pos_y, found: true, duration: elapsed, status: None}).await;
                 Ok(response.json::<Vec<String>>().await?)
             },
             reqwest::StatusCode::NOT_FOUND => {
-                self.stats_handler.send(RecordDig { depth: dig.depth, found: false, duration: elapsed, status: None}).await;
+                self.stats_handler.send(RecordDig { depth: dig.depth, x: dig.pos_x, y: dig.pos_y, found: false, duration: elapsed, status: None}).await;
                 Ok(vec![])
             },
             status => {
-                self.stats_handler.send(RecordDig { depth: dig.depth, found: false, duration: elapsed, status: Some(status)}).await;
+                self.stats_handler.send(RecordDig { depth: dig.depth, x: dig.pos_x, y: dig.pos_y, found: false, duration: elapsed, status: Some(status)}).await;
                 Err(DescriptiveError::new(
                     "dig",
                     status,
