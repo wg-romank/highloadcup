@@ -89,18 +89,19 @@ impl Accounting {
 
         // todo: join with futures unordered
         if self.active_licenses < CONCURRENT_LICENSES {
-            let lic = if self.coins.len() > 1000 {
-                let coins_to_use = COINS
-                    .iter()
-                    .find(|(&k, &v)| v >= self.digs_pending )
-                    .map(|(&k, _)| k)
-                    .unwrap_or(COINS_MAX) as usize;
-                let cc = self.coins.drain(0..coins_to_use).collect::<Vec<u64>>();
-                // if self.coins_to_use < 50 {
-                //     self.coins_to_use += 1;
-                // };
-                self.client.plain_license(cc)
-            } else if let Some(c) = self.coins.pop() {
+            let lic = //if self.coins.len() > 1000 {
+            //     let coins_to_use = COINS
+            //         .iter()
+            //         .find(|(&k, &v)| v >= self.digs_pending )
+            //         .map(|(&k, _)| k)
+            //         .unwrap_or(COINS_MAX) as usize;
+            //     let cc = self.coins.drain(0..coins_to_use).collect::<Vec<u64>>();
+            //     // if self.coins_to_use < 50 {
+            //     //     self.coins_to_use += 1;
+            //     // };
+            //     self.client.plain_license(cc)
+            // } else
+            if let Some(c) = self.coins.pop() {
                 self.client.plain_license(vec![c])
             } else {
                 self.client.plain_license(vec![])
