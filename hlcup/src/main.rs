@@ -21,6 +21,7 @@ use worker::Worker;
 use crate::stats::{StatsHandler, StatsMessage};
 use tokio::time::Duration;
 use base64::display::Base64Display;
+use crate::constants::N_WORKERS;
 
 
 async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
@@ -33,7 +34,7 @@ async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
 }
 
 fn main() -> () {
-    let n_workers: u64 = 5;
+    let n_workers = N_WORKERS as u64;
     let threaded_rt = runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(n_workers as usize)
