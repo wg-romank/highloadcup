@@ -48,36 +48,44 @@ impl Worker {
             errors.push(Explore { area: *a, amount: u64::max_value() })
         });
         let mut explore_heap = BinaryHeap::new();
-        let mut cum_cost = 0;
         while let Some(a) = errors.pop() {
             match client.explore(&a.area).await {
                 Ok(result) if result.is_managable(started) => {
-                    cum_cost += result.cost();
                     explore_heap.push(result);
-                    // todo: multiple?
-                    let time_since_started_ms = started.elapsed().as_millis();
-                    let remaining_time_ms = TIME_LIMIT_MS - time_since_started_ms;
-                    if cum_cost > remaining_time_ms {
-                        break
-                    }
                 },
                 Ok(result) => {
                     errors.extend(result.area.divide().into_iter().map(|a| Explore { area: a, amount: result.amount }))
                 }
                 Err(_) => {
-                    // println!("area too big {:#?}", a);
                     errors.extend(a.area.divide().into_iter().map(|a| Explore { area: a, amount: u64::max_value() }))
-
                 }
             }
         };
+
+        let mut ff = BinaryHeap::new();
+        let mut cum_cost = 0;
+        while let Some(e) = explore_heap.pop() {
+            // todo: skip this if
+            if e.is_managable(started) {
+                cum_cost += e.cost();
+                ff.push(e);
+
+                let time_since_started_ms = started.elapsed().as_millis();
+                let remaining_time_ms = TIME_LIMIT_MS - time_since_started_ms;
+                if cum_cost > remaining_time_ms {
+                    break
+                }
+            }
+        }
+
+        // todo: multiple?
 
         // println!("picking:");
         // for i in explore_heap.iter() {
         //     println!("{}", i.hash())
         // }
 
-        Ok(explore_heap)
+        Ok(ff)
     }
 
     async fn logic(&mut self) -> ClientResponse<()> {
