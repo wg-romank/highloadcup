@@ -1,4 +1,5 @@
 Attempt to participate in HighLoadCup 2021
+
 See contest details in https://cups.mail.ru/en/contests/goldrush
 
 Get stub server
