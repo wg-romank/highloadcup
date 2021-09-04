@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
 use crate::dto::Dig;
+use std::cmp::Ordering;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Treasure {
@@ -30,7 +30,12 @@ pub struct PendingDig {
 
 impl PendingDig {
     pub fn new(x: u64, y: u64, remaining: u64) -> PendingDig {
-        PendingDig { x, y, depth: 1, remaining }
+        PendingDig {
+            x,
+            y,
+            depth: 1,
+            remaining,
+        }
     }
 
     pub fn to_dig(self, license_id: u64) -> Dig {
@@ -57,8 +62,7 @@ impl PendingDig {
 
 impl Ord for PendingDig {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.remaining * self.depth as u64)
-            .cmp(&(other.remaining * other.depth as u64))
+        (self.remaining * self.depth as u64).cmp(&(other.remaining * other.depth as u64))
     }
 }
 
@@ -73,21 +77,41 @@ fn test_treasure_ord() {
     use std::collections::BinaryHeap;
 
     let mut hp = BinaryHeap::new();
-    hp.push(Treasure { depth: 1, treasures: vec![]});
-    hp.push(Treasure { depth: 2, treasures: vec![]});
+    hp.push(Treasure {
+        depth: 1,
+        treasures: vec![],
+    });
+    hp.push(Treasure {
+        depth: 2,
+        treasures: vec![],
+    });
 
     assert_eq!(hp.pop().unwrap().depth, 2);
     assert_eq!(hp.pop().unwrap().depth, 1);
 }
 
-
 #[test]
 fn test_dig_ord() {
     use std::collections::BinaryHeap;
     let mut hp = BinaryHeap::new();
-    hp.push(PendingDig { x: 1, y: 0, depth: 2, remaining: 11 });
-    hp.push(PendingDig { x: 3, y: 0, depth: 2, remaining: 10 });
-    hp.push(PendingDig { x: 2, y: 0, depth: 1, remaining: 10 });
+    hp.push(PendingDig {
+        x: 1,
+        y: 0,
+        depth: 2,
+        remaining: 11,
+    });
+    hp.push(PendingDig {
+        x: 3,
+        y: 0,
+        depth: 2,
+        remaining: 10,
+    });
+    hp.push(PendingDig {
+        x: 2,
+        y: 0,
+        depth: 1,
+        remaining: 10,
+    });
 
     assert_eq!(hp.pop().unwrap().x, 1);
     assert_eq!(hp.pop().unwrap().x, 3);

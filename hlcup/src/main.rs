@@ -1,26 +1,25 @@
-mod client;
-mod dto;
 mod accounting;
-mod model;
+mod client;
 mod constants;
-mod worker;
+mod dto;
+mod model;
 mod stats;
+mod worker;
 
 use std::time::Instant;
 
-use tokio::runtime;
 use futures::future::join_all;
+use tokio::runtime;
 
 use client::Client;
 
 use dto::*;
 
-use accounting::AccountingHandle;
-use worker::Worker;
-use crate::stats::{StatsHandler, StatsMessage};
-use tokio::time::Duration;
 use crate::constants::N_WORKERS;
-
+use crate::stats::{StatsHandler, StatsMessage};
+use accounting::AccountingHandle;
+use tokio::time::Duration;
+use worker::Worker;
 
 async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
     let accounting_handle = AccountingHandle::new(&client);
@@ -42,7 +41,7 @@ fn main() {
 
     println!("Started thread = {}", n_workers);
 
-    let address  = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
+    let address = std::env::var("ADDRESS").expect("missing env variable ADDRESS");
     let stats_hanlder = StatsHandler::new(&threaded_rt);
     let client = Client::new(&address, stats_hanlder.tx.clone());
 
@@ -57,16 +56,21 @@ fn main() {
     let w = 3500 / n_workers;
     let h = 3500;
 
-    threaded_rt.block_on(
-        join_all((0..n_workers).map(|i| {
-            let client = client.clone();
-            threaded_rt.spawn(async move {
-                let area = Area { pos_x: w * i, pos_y: 0, size_x: w, size_y: h };
-                _main(client, started, area
-                    .divide()
-                    .iter()
-                    .flat_map(|a| a.divide()).collect()).await
-            })
-        }))
-    );
+    threaded_rt.block_on(join_all((0..n_workers).map(|i| {
+        let client = client.clone();
+        threaded_rt.spawn(async move {
+            let area = Area {
+                pos_x: w * i,
+                pos_y: 0,
+                size_x: w,
+                size_y: h,
+            };
+            _main(
+                client,
+                started,
+                area.divide().iter().flat_map(|a| a.divide()).collect(),
+            )
+            .await
+        })
+    })));
 }

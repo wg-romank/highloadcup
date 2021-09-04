@@ -3,11 +3,11 @@ use std::time::Instant;
 
 use tokio::sync::oneshot;
 
-use crate::accounting::{MessageForAccounting, AccountingHandle};
-use crate::dto::{License, Explore, Area};
+use crate::accounting::{AccountingHandle, MessageForAccounting};
 use crate::client::{Client, ClientResponse};
-use crate::model::{Treasure, PendingDig};
-use crate::constants::{TIME_LIMIT_MS, MAX_DEPTH};
+use crate::constants::{MAX_DEPTH, TIME_LIMIT_MS};
+use crate::dto::{Area, Explore, License};
+use crate::model::{PendingDig, Treasure};
 
 pub struct Worker {
     client: Client,
@@ -24,12 +24,17 @@ impl Worker {
                 Ok(_) => (),
                 Err(e) => {
                     println!("error {}", e)
-                },
+                }
             }
         }
     }
 
-    pub async fn new(client: Client, started: Instant, areas: Vec<Area>, accounting_handle: AccountingHandle) -> Self {
+    pub async fn new(
+        client: Client,
+        started: Instant,
+        areas: Vec<Area>,
+        accounting_handle: AccountingHandle,
+    ) -> Self {
         let explore_heap = Worker::init_state(&client, started, areas).await.unwrap();
 
         Self {
@@ -37,30 +42,39 @@ impl Worker {
             licenses: vec![],
             explore_heap,
             dig_heap: BinaryHeap::<PendingDig>::new(),
-            accounting_handle
+            accounting_handle,
         }
     }
 
     // todo: get rid of it
-    async fn init_state(client: &Client, started: Instant, areas: Vec<Area>) -> ClientResponse<BinaryHeap<Explore>> {
+    async fn init_state(
+        client: &Client,
+        started: Instant,
+        areas: Vec<Area>,
+    ) -> ClientResponse<BinaryHeap<Explore>> {
         let mut errors = BinaryHeap::new();
         areas.clone().iter().for_each(|a| {
-            errors.push(Explore { area: *a, amount: u64::max_value() })
+            errors.push(Explore {
+                area: *a,
+                amount: u64::max_value(),
+            })
         });
         let mut explore_heap = BinaryHeap::new();
         while let Some(a) = errors.pop() {
             match client.explore(&a.area).await {
                 Ok(result) if result.is_managable(started) => {
                     explore_heap.push(result);
-                },
-                Ok(result) => {
-                    errors.extend(result.area.divide().into_iter().map(|a| Explore { area: a, amount: result.amount }))
                 }
-                Err(_) => {
-                    errors.extend(a.area.divide().into_iter().map(|a| Explore { area: a, amount: u64::max_value() }))
-                }
+                Ok(result) => errors.extend(result.area.divide().into_iter().map(|a| Explore {
+                    area: a,
+                    amount: result.amount,
+                })),
+                Err(_) => errors.extend(a.area.divide().into_iter().map(|a| Explore {
+                    area: a,
+                    amount: u64::max_value(),
+                })),
             }
-        };
+        }
 
         let mut ff = BinaryHeap::new();
         let mut cum_cost = 0;
@@ -73,7 +87,7 @@ impl Worker {
                 let time_since_started_ms = started.elapsed().as_millis();
                 let remaining_time_ms = TIME_LIMIT_MS - time_since_started_ms;
                 if cum_cost > remaining_time_ms {
-                    break
+                    break;
                 }
             }
         }
@@ -93,7 +107,10 @@ impl Worker {
             // todo: if we have total we do not need to get latest from here
             // since it can be computed given previous results
             match ar.area.size() {
-                1 => { self.dig_heap.push(PendingDig::new(ar.area.pos_x, ar.area.pos_y, ar.amount)); }
+                1 => {
+                    self.dig_heap
+                        .push(PendingDig::new(ar.area.pos_x, ar.area.pos_y, ar.amount));
+                }
                 _ => {
                     let divided = ar.area.divide();
                     let mut cum = 0;
@@ -103,13 +120,16 @@ impl Worker {
                             cum += res.amount;
                             self.explore_heap.push(res);
                             if cum == ar.amount {
-                                break
+                                break;
                             }
                         };
                     }
                     if ar.amount > cum {
                         if let Some(a) = divided.last() {
-                            self.explore_heap.push(Explore { area: *a, amount: ar.amount - cum });
+                            self.explore_heap.push(Explore {
+                                area: *a,
+                                amount: ar.amount - cum,
+                            });
                         }
                     }
                     // todo: checks
@@ -129,21 +149,31 @@ impl Worker {
                 }
 
                 if treasures_count > 0 {
-                    self.accounting_handle.sender.send(MessageForAccounting::TreasureToClaim(Treasure {
-                        depth: pending_dig.depth,
-                        treasures: treasure,
-                    })).await.map_err(|r| panic!("failed to send treasure {}", r));
+                    self.accounting_handle
+                        .sender
+                        .send(MessageForAccounting::TreasureToClaim(Treasure {
+                            depth: pending_dig.depth,
+                            treasures: treasure,
+                        }))
+                        .await
+                        .map_err(|r| panic!("failed to send treasure {}", r));
                 }
                 lic.dig_used += 1;
                 if lic.is_still_valid() {
                     self.licenses.push(lic)
                 } else {
-                    self.accounting_handle.sender.send(MessageForAccounting::LicenseExpired(self.pending_digs())).await;
+                    self.accounting_handle
+                        .sender
+                        .send(MessageForAccounting::LicenseExpired(self.pending_digs()))
+                        .await;
                 }
             } else {
                 self.dig_heap.push(pending_dig);
                 let (tx, rx) = oneshot::channel();
-                self.accounting_handle.sender.send(MessageForAccounting::GetLicense(tx)).await;
+                self.accounting_handle
+                    .sender
+                    .send(MessageForAccounting::GetLicense(tx))
+                    .await;
                 self.licenses.extend(rx.await.unwrap())
             }
         };
@@ -152,6 +182,9 @@ impl Worker {
     }
 
     fn pending_digs(&self) -> u64 {
-        self.dig_heap.iter().map(|pd| MAX_DEPTH + 1 - pd.depth as u64).sum()
+        self.dig_heap
+            .iter()
+            .map(|pd| MAX_DEPTH + 1 - pd.depth as u64)
+            .sum()
     }
 }
