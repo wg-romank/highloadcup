@@ -93,9 +93,6 @@ impl Explore {
         self.cost() < remaining_time_ms
     }
 
-    pub fn hash(&self) -> String {
-        format!("[{}, {}; {}, {}] - {}", self.area.pos_x, self.area.pos_y, self.area.size_x, self.area.size_y, self.amount)
-    }
 }
 
 impl Ord for Explore {

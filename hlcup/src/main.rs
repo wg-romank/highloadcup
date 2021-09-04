@@ -12,7 +12,6 @@ use tokio::runtime;
 use futures::future::join_all;
 
 use client::Client;
-use client::ClientResponse;
 
 use dto::*;
 
@@ -20,7 +19,6 @@ use accounting::AccountingHandle;
 use worker::Worker;
 use crate::stats::{StatsHandler, StatsMessage};
 use tokio::time::Duration;
-use base64::display::Base64Display;
 use crate::constants::N_WORKERS;
 
 
@@ -33,7 +31,7 @@ async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
         .await
 }
 
-fn main() -> () {
+fn main() {
     let n_workers = N_WORKERS as u64;
     let threaded_rt = runtime::Builder::new_multi_thread()
         .enable_all()

@@ -1,9 +1,11 @@
 use crate::dto::*;
 
+use std::time::Instant;
+
 use reqwest::Error;
 use tokio::sync::mpsc;
+
 use crate::stats::StatsMessage;
-use std::time::Instant;
 use crate::stats::StatsMessage::{RecordExplore, RecordLicense, RecordDig, RecordCash};
 
 #[derive(Clone)]
@@ -26,8 +28,8 @@ impl Client {
             explore_url: base_url.clone() + "/explore",
             licenses_url: base_url.clone() + "/licenses",
             dig_url: base_url.clone() + "/dig",
-            cash_url: base_url.clone() + "/cash",
-            stats_handler: stats_handler,
+            cash_url: base_url + "/cash",
+            stats_handler,
         }
     }
 }
@@ -55,7 +57,7 @@ impl std::convert::From<Error> for DescriptiveError {
 
 impl std::fmt::Display for DescriptiveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "err: {}\n", &self.message)
+        writeln!(f, "err: {}", &self.message)
     }
 }
 
@@ -157,7 +159,7 @@ impl Client {
 impl Client {
     pub async fn plain_cash(&self, depth: u8, treasure: String) -> Vec<u64> {
         loop {
-            if let Some(coins) = self.cash(depth, treasure.clone()).await.ok() {
+            if let Ok(coins) = self.cash(depth, treasure.clone()).await {
                 break coins
             }
         }
@@ -165,7 +167,7 @@ impl Client {
 
     pub async fn plain_license(&self, coins: Vec<u64>) -> License {
         loop {
-            if let Some(lic) = self.get_license(coins.clone()).await.ok() {
+            if let Ok(lic) = self.get_license(coins.clone()).await {
                 break lic
             }
         }

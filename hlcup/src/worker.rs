@@ -33,11 +33,11 @@ impl Worker {
         let explore_heap = Worker::init_state(&client, started, areas).await.unwrap();
 
         Self {
-            client: client,
+            client,
             licenses: vec![],
-            explore_heap: explore_heap,
+            explore_heap,
             dig_heap: BinaryHeap::<PendingDig>::new(),
-            accounting_handle: accounting_handle
+            accounting_handle
         }
     }
 
@@ -97,8 +97,8 @@ impl Worker {
                 _ => {
                     let divided = ar.area.divide();
                     let mut cum = 0;
-                    for a in divided[..divided.len() - 1].into_iter() {
-                        let res = self.client.explore(&a).await?;
+                    for a in divided[..divided.len() - 1].iter() {
+                        let res = self.client.explore(a).await?;
                         if res.amount > 0 {
                             cum += res.amount;
                             self.explore_heap.push(res);
@@ -108,9 +108,9 @@ impl Worker {
                         };
                     }
                     if ar.amount > cum {
-                        divided.last().map(|a| {
+                        if let Some(a) = divided.last() {
                             self.explore_heap.push(Explore { area: *a, amount: ar.amount - cum });
-                        });
+                        }
                     }
                     // todo: checks
                     // assert_eq!(ar.amount, cum);

@@ -12,7 +12,7 @@ use lazy_static::lazy_static;
 
 use crate::constants::CONCURRENT_LICENSES;
 
-const COINS_MAX: usize = 21;
+// const COINS_MAX: usize = 21;
 
 lazy_static! {
     // todo: add max value?
@@ -51,9 +51,9 @@ impl Accounting {
         selftx: mpsc::Sender<MessageForAccounting>,
     ) -> Accounting {
         Accounting {
-            client: client,
-            rx: rx,
-            selftx: selftx,
+            client,
+            rx,
+            selftx,
             treasures: BinaryHeap::new(),
             // coins_to_use: 2,
             digs_pending: 0,
@@ -69,7 +69,7 @@ impl Accounting {
             let cl = client.clone();
             tokio::spawn(async move {
                 cl.plain_cash(depth, tt).await
-            }).map(|r| r.ok().unwrap_or(vec![]))
+            }).map(|r| r.ok().unwrap_or_default())
         }).collect()
     }
 

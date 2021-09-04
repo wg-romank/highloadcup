@@ -3,9 +3,6 @@ use reqwest::StatusCode;
 use tokio::sync::mpsc;
 use histogram::Histogram;
 use tokio::runtime::Runtime;
-use base64::display::Base64Display;
-use deflate::{deflate_bytes, deflate_bytes_conf, Compression};
-use crate::dto::License;
 
 
 pub enum StatsMessage {
@@ -24,7 +21,7 @@ impl StatsHandler {
     pub fn new(rt: &Runtime) -> Self {
         let (tx, rx) = mpsc::channel(1000);
         rt.spawn(async move {
-            StatsActor { stats: Stats::new(), rx: rx }.run().await
+            StatsActor { stats: Stats::new(), rx }.run().await
         });
         Self { tx }
     }
@@ -78,31 +75,28 @@ impl EpMetric {
 
     fn inc(&mut self, map_key: u8, duration: u64, err: Option<StatusCode>) {
         self.total += 1.;
-        self.histograms.entry(map_key).or_insert(Histogram::new()).increment(duration);
+        self.histograms.entry(map_key).or_insert_with(Histogram::new).increment(duration);
         // .map_err(|e| println!("hist err: {}", e));
-        match err {
-            Some(status) => {
-                self.err += 1.;
-                self.err_codes.insert(status.to_string());
-            }
-            None => ()
+        if let Some(status) = err {
+            self.err += 1.;
+            self.err_codes.insert(status.to_string());
         }
     }
 }
 
 impl std::fmt::Display for EpMetric {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} / {}, error rate {:.3}\n", self.total, self.err, self.err / self.total)?;
+        writeln!(f, "{} / {}, error rate {:.3}", self.total, self.err, self.err / self.total)?;
         // print percentiles from the histogram
         for (depth, histogram) in self.histograms.iter() {
-            write!(f, "({}) - percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}\n",
+            writeln!(f, "({}) - percentiles: p50: {} ns p90: {} ns p99: {} ns p999: {}",
                    depth,
                    histogram.percentile(50.0).unwrap(),
                    histogram.percentile(90.0).unwrap(),
                    histogram.percentile(99.0).unwrap(),
                    histogram.percentile(99.9).unwrap(),
             )?;
-            write!(f, "({}) - latency (ns): Min: {} Avg: {} Max: {} StdDev: {}\n",
+            writeln!(f, "({}) - latency (ns): Min: {} Avg: {} Max: {} StdDev: {}",
                    depth,
                    histogram.minimum().unwrap(),
                    histogram.mean().unwrap(),
@@ -111,7 +105,7 @@ impl std::fmt::Display for EpMetric {
             )?;
         }
         if !self.err_codes.is_empty() {
-            write!(f, "codes {}\n", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
+            writeln!(f, "codes {}", self.err_codes.clone().into_iter().collect::<Vec<String>>().join("|"))?;
         }
         Ok(())
     }
@@ -127,20 +121,20 @@ impl std::fmt::Display for Stats {
         // let byt = deflate_bytes_conf(contents.as_bytes(), Compression::Best);
         // let encoded = Base64Display::with_config(&byt, base64::STANDARD);
         // write!(f, "{}", encoded)
-        write!(f, "total: {}\n", self.total)?;
+        writeln!(f, "total: {}", self.total)?;
         write!(f, "explore: {}", self.explore)?;
 
-        write!(f, "digs: {}found {}, found rate {}\n", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
+        writeln!(f, "digs: {}found {}, found rate {}", self.dig, self.dig_found, self.dig_found / self.dig.total)?;
         let dig_stats: String = self.dig_found_per_depth
             .iter()
             .map(|(k, v)| format!("{}:{:.3}", k, v.1 / v.0))
             .collect::<Vec<String>>().join(", ");
-        write!(f, "rate at depth {}\n", dig_stats)?;
+        writeln!(f, "rate at depth {}", dig_stats)?;
 
         write!(f, "cash: {}", self.cash)?;
-        write!(f, "cash at depth: {}\n", self.cash_at_depth)?;
+        writeln!(f, "cash at depth: {}", self.cash_at_depth)?;
 
-        write!(f, "digs allowed total: {}\n", self.digs_allowed_total)?;
+        writeln!(f, "digs allowed total: {}", self.digs_allowed_total)?;
         write!(f, "license: \n{}", self.license)?;
         let lic_stats = self.licenses_per_coins
             .iter()

@@ -16,7 +16,7 @@ impl Ord for Treasure {
 
 impl PartialOrd for Treasure {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
@@ -33,9 +33,9 @@ impl PendingDig {
         PendingDig { x, y, depth: 1, remaining }
     }
 
-    pub fn to_dig(&self, license_id: u64) -> Dig {
+    pub fn to_dig(self, license_id: u64) -> Dig {
         Dig {
-            license_id: license_id,
+            license_id,
             pos_x: self.x,
             pos_y: self.y,
             depth: self.depth,
@@ -64,7 +64,7 @@ impl Ord for PendingDig {
 
 impl PartialOrd for PendingDig {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
