@@ -1,3 +1,7 @@
+use std::collections::BinaryHeap;
+use futures::stream::FuturesUnordered;
+use futures::{Future, FutureExt, StreamExt};
+use crate::model::Treasure;
 use crate::dto::*;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -212,4 +216,34 @@ impl Client {
             }
         }
     }
+}
+
+
+fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
+    let depth = t.depth;
+    t.treasures
+        .into_iter()
+        .map(move |tt| {
+            let cl = client.clone();
+            tokio::spawn(async move { cl.plain_cash(depth, tt).await })
+                .map(|r| r.ok().unwrap_or_default())
+        })
+        .collect()
+}
+
+fn claim_treasures(
+    client: &Client,
+    treasures: &mut BinaryHeap<Treasure>,
+) -> FuturesUnordered<impl Future<Output = Vec<u64>>> {
+    treasures
+        .drain()
+        .flat_map(move |t| claim_treasure(client, t))
+        .collect()
+}
+
+pub async fn claim_all(client: &Client, treasures: &mut BinaryHeap<Treasure>) -> Vec<u64> {
+    let cc = claim_treasures(client, treasures)
+        .collect::<Vec<Vec<u64>>>()
+        .await;
+    cc.into_iter().flatten().collect::<Vec<u64>>()
 }

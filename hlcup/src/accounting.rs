@@ -1,11 +1,10 @@
+use crate::client::claim_all;
 use crate::client::Client;
 use crate::dto::License;
 use crate::model::Treasure;
 
 use std::collections::{BinaryHeap, HashMap};
 
-use futures::stream::FuturesUnordered;
-use futures::{Future, FutureExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 
 use lazy_static::lazy_static;
@@ -63,36 +62,11 @@ impl Accounting {
             coins: vec![],
         }
     }
-
-    fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
-        let depth = t.depth;
-        t.treasures
-            .into_iter()
-            .map(move |tt| {
-                let cl = client.clone();
-                tokio::spawn(async move { cl.plain_cash(depth, tt).await })
-                    .map(|r| r.ok().unwrap_or_default())
-            })
-            .collect()
-    }
-
-    fn claim_treasures(
-        client: &Client,
-        treasures: &mut BinaryHeap<Treasure>,
-    ) -> FuturesUnordered<impl Future<Output = Vec<u64>>> {
-        treasures
-            .drain()
-            .flat_map(move |t| Accounting::claim_treasure(client, t))
-            .collect()
-    }
 }
 
 impl Accounting {
     async fn update_state(&mut self) {
-        let cc = Accounting::claim_treasures(&self.client, &mut self.treasures)
-            .collect::<Vec<Vec<u64>>>()
-            .await;
-        let ccc = cc.into_iter().flatten().collect::<Vec<u64>>();
+        let ccc = claim_all(&self.client, &mut self.treasures).await;
         self.coins.extend(ccc);
 
         // todo: join with futures unordered
