@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::time::Instant;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Area {
     pub pos_x: u64,
@@ -72,7 +72,7 @@ impl Area {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Default)]
 pub struct Explore {
     pub area: Area,
     pub amount: u64,
@@ -104,7 +104,7 @@ impl PartialOrd for Explore {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Clone, Copy, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct License {
     pub id: u64,
@@ -118,7 +118,7 @@ impl License {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Dig {
     #[serde(rename = "licenseID")]

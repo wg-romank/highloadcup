@@ -47,10 +47,12 @@ fn main() {
 
     // todo: nicer way
     threaded_rt.spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(400)).await;
-            stats_hanlder.tx.send(StatsMessage::ShowStats).await;
-        }
+        tokio::time::sleep(Duration::from_secs(400)).await;
+        stats_hanlder
+            .tx
+            .send(StatsMessage::ShowStats)
+            .await
+            .expect("failed to request showing stats")
     });
 
     let w = 3500 / n_workers;

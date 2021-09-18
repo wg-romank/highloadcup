@@ -1,4 +1,7 @@
 use crate::dto::*;
+use reqwest::StatusCode;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 use std::time::Instant;
 
@@ -64,177 +67,132 @@ impl std::fmt::Display for DescriptiveError {
 }
 
 impl Client {
-    pub async fn explore(&self, area: &Area) -> ClientResponse<Explore> {
+    async fn send_stats(&self, message: StatsMessage) {
+        self.stats_handler
+            .send(message)
+            .await
+            .expect("failed to send stats");
+    }
+
+    async fn call<Payload: Serialize, Response: DeserializeOwned + Default>(
+        &self,
+        endpoint: &str,
+        payload: &Payload,
+        stats_success: impl Fn(&Response, u64) -> StatsMessage,
+        stats_failure: impl Fn(Option<StatusCode>, u64) -> StatsMessage,
+        error_info: Option<String>,
+    ) -> ClientResponse<Response> {
         let now = Instant::now();
-        let response = self
-            .client
-            .post(&self.explore_url)
-            .json(area)
-            .send()
-            .await?;
+        let response = self.client.post(endpoint).json(payload).send().await?;
         let elapsed = now.elapsed().as_micros() as u64;
 
         match response.status() {
             reqwest::StatusCode::OK => {
-                self.stats_handler
-                    .send(RecordExplore {
-                        area_size: area.size(),
-                        duration: elapsed,
-                        status: None,
-                    })
-                    .await;
-                Ok(response.json::<Explore>().await?)
+                let res = response.json::<Response>().await?;
+                self.send_stats(stats_success(&res, elapsed)).await;
+                Ok(res)
+            }
+            reqwest::StatusCode::NOT_FOUND => {
+                self.send_stats(stats_failure(None, elapsed)).await;
+                Ok(Response::default())
             }
             status => {
-                self.stats_handler
-                    .send(RecordExplore {
-                        area_size: area.size(),
-                        duration: elapsed,
-                        status: Some(status),
-                    })
-                    .await;
+                self.send_stats(stats_failure(Some(status), elapsed)).await;
+                let error_text = response.text().await?;
                 Err(DescriptiveError::new(
-                    "explore",
+                    endpoint,
                     status,
-                    response.text().await?,
+                    error_info.map(|s| s + &error_text).unwrap_or(error_text),
                 ))
             }
         }
+    }
+
+    pub async fn explore(&self, area: &Area) -> ClientResponse<Explore> {
+        self.call(
+            &self.explore_url,
+            area,
+            |_, elapsed| RecordExplore {
+                area_size: area.size(),
+                duration: elapsed,
+                status: None,
+            },
+            |status, elapsed| RecordExplore {
+                area_size: area.size(),
+                duration: elapsed,
+                status,
+            },
+            None,
+        )
+        .await
     }
 
     pub async fn get_license(&self, coins: Vec<u64>) -> ClientResponse<License> {
-        let now = Instant::now();
         let l = coins.len() as u64;
-        let response = self
-            .client
-            .post(&self.licenses_url)
-            .json(&coins)
-            .send()
-            .await?;
-        let elapsed = now.elapsed().as_micros() as u64;
-
-        match response.status() {
-            reqwest::StatusCode::OK => {
-                let lic = response.json::<License>().await?;
-                self.stats_handler
-                    .send(RecordLicense {
-                        duration: elapsed,
-                        coins: l,
-                        allowed: lic.dig_allowed,
-                        status: None,
-                    })
-                    .await;
-                Ok(lic)
-            }
-            status => {
-                self.stats_handler
-                    .send(RecordLicense {
-                        duration: elapsed,
-                        coins: l,
-                        allowed: 0,
-                        status: Some(status),
-                    })
-                    .await;
-                Err(DescriptiveError::new(
-                    "license",
-                    status,
-                    response.text().await?,
-                ))
-            }
-        }
+        self.call(
+            &self.licenses_url,
+            &coins,
+            |lic: &License, elapsed| RecordLicense {
+                duration: elapsed,
+                coins: l,
+                allowed: lic.dig_allowed,
+                status: None,
+            },
+            |status, elapsed| RecordLicense {
+                duration: elapsed,
+                coins: l,
+                allowed: 0,
+                status,
+            },
+            None,
+        )
+        .await
     }
 
     pub async fn dig(&self, dig: &Dig) -> ClientResponse<Vec<String>> {
-        let now = Instant::now();
-        let response = self.client.post(&self.dig_url).json(dig).send().await?;
-        let elapsed = now.elapsed().as_micros() as u64;
-
-        match response.status() {
-            reqwest::StatusCode::OK => {
-                self.stats_handler
-                    .send(RecordDig {
-                        depth: dig.depth,
-                        x: dig.pos_x,
-                        y: dig.pos_y,
-                        found: true,
-                        duration: elapsed,
-                        status: None,
-                    })
-                    .await;
-                Ok(response.json::<Vec<String>>().await?)
-            }
-            reqwest::StatusCode::NOT_FOUND => {
-                self.stats_handler
-                    .send(RecordDig {
-                        depth: dig.depth,
-                        x: dig.pos_x,
-                        y: dig.pos_y,
-                        found: false,
-                        duration: elapsed,
-                        status: None,
-                    })
-                    .await;
-                Ok(vec![])
-            }
-            status => {
-                self.stats_handler
-                    .send(RecordDig {
-                        depth: dig.depth,
-                        x: dig.pos_x,
-                        y: dig.pos_y,
-                        found: false,
-                        duration: elapsed,
-                        status: Some(status),
-                    })
-                    .await;
-                Err(DescriptiveError::new(
-                    "dig",
-                    status,
-                    format!("{} {} {}", dig.pos_x, dig.pos_y, dig.depth) + &response.text().await?,
-                ))
-            }
-        }
+        self.call(
+            &self.dig_url,
+            dig,
+            |_, elapsed| RecordDig {
+                depth: dig.depth,
+                x: dig.pos_x,
+                y: dig.pos_y,
+                found: true,
+                duration: elapsed,
+                status: None,
+            },
+            |status, elapsed| RecordDig {
+                depth: dig.depth,
+                x: dig.pos_x,
+                y: dig.pos_y,
+                found: false,
+                duration: elapsed,
+                status,
+            },
+            Some(format!("{} {} {}", dig.pos_x, dig.pos_y, dig.depth)),
+        )
+        .await
     }
 
     pub async fn cash(&self, depth: u8, treasure: String) -> ClientResponse<Vec<u64>> {
-        let now = Instant::now();
-        let response = self
-            .client
-            .post(&self.cash_url)
-            .json(&treasure)
-            .send()
-            .await?;
-        let elapsed = now.elapsed().as_micros() as u64;
-
-        match response.status() {
-            reqwest::StatusCode::OK => {
-                let coins = response.json::<Vec<u64>>().await?;
-                self.stats_handler
-                    .send(RecordCash {
-                        amount: coins.len() as u64,
-                        depth,
-                        duration: elapsed,
-                        status: None,
-                    })
-                    .await;
-                Ok(coins)
-            }
-            status => {
-                self.stats_handler
-                    .send(RecordCash {
-                        amount: 0,
-                        depth,
-                        duration: elapsed,
-                        status: Some(status),
-                    })
-                    .await;
-                Err(DescriptiveError::new(
-                    "cash",
-                    status,
-                    response.text().await?,
-                ))
-            }
-        }
+        self.call(
+            &self.cash_url,
+            &treasure,
+            |coins: &Vec<u64>, elapsed| RecordCash {
+                amount: coins.len() as u64,
+                depth,
+                duration: elapsed,
+                status: None,
+            },
+            |status, elapsed| RecordCash {
+                amount: 0,
+                depth,
+                duration: elapsed,
+                status,
+            },
+            None,
+        )
+        .await
     }
 }
 

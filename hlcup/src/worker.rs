@@ -156,7 +156,7 @@ impl Worker {
                             treasures: treasure,
                         }))
                         .await
-                        .map_err(|r| panic!("failed to send treasure {}", r));
+                        .expect("failed to send treasure");
                 }
                 lic.dig_used += 1;
                 if lic.is_still_valid() {
@@ -165,7 +165,8 @@ impl Worker {
                     self.accounting_handle
                         .sender
                         .send(MessageForAccounting::LicenseExpired(self.pending_digs()))
-                        .await;
+                        .await
+                        .expect("failed to notify for license expiration");
                 }
             } else {
                 self.dig_heap.push(pending_dig);
@@ -173,7 +174,8 @@ impl Worker {
                 self.accounting_handle
                     .sender
                     .send(MessageForAccounting::GetLicense(tx))
-                    .await;
+                    .await
+                    .expect("failed to request license");
                 self.licenses.extend(rx.await.unwrap())
             }
         };

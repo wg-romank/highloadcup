@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
+#[derive(Debug)]
 pub enum StatsMessage {
     ShowStats,
     RecordExplore {
@@ -129,7 +130,8 @@ impl EpMetric {
         self.histograms
             .entry(map_key)
             .or_insert_with(Histogram::new)
-            .increment(duration);
+            .increment(duration)
+            .expect("failed to update historgram stats");
         // .map_err(|e| println!("hist err: {}", e));
         if let Some(status) = err {
             self.err += 1.;

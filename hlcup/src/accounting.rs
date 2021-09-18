@@ -37,6 +37,7 @@ pub struct Accounting {
     coins: Vec<u64>,
 }
 
+#[derive(Debug)]
 pub enum MessageForAccounting {
     TreasureToClaim(Treasure),
     GetLicense(oneshot::Sender<Vec<License>>),
