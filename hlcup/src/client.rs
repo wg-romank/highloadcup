@@ -1,11 +1,11 @@
-use std::collections::BinaryHeap;
+use crate::dto::*;
+use crate::model::Treasure;
 use futures::stream::FuturesUnordered;
 use futures::{Future, FutureExt, StreamExt};
-use crate::model::Treasure;
-use crate::dto::*;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::BinaryHeap;
 
 use std::time::Instant;
 
@@ -217,7 +217,6 @@ impl Client {
         }
     }
 }
-
 
 fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
     let depth = t.depth;

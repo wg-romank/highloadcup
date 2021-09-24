@@ -1,4 +1,3 @@
-use tokio::runtime::Runtime;
 use crate::util::Actor;
 use histogram::Histogram;
 use reqwest::StatusCode;
@@ -42,7 +41,10 @@ pub struct StatsActor {
 
 impl StatsActor {
     pub fn new(rx: mpsc::Receiver<StatsMessage>) -> Self {
-        StatsActor { stats: Stats::new(), rx }
+        StatsActor {
+            stats: Stats::new(),
+            rx,
+        }
     }
 
     pub async fn run(&mut self) {
@@ -274,7 +276,7 @@ impl Stats {
 }
 
 impl Actor for StatsActor {
-    fn start(mut self) -> () {
+    fn start(mut self) {
         tokio::spawn(async move {
             self.run().await;
         });
