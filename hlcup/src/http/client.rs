@@ -222,7 +222,7 @@ fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<
     let depth = t.depth;
     t.treasures
         .into_iter()
-        .map(move |tt| {
+        .map(|tt| {
             let cl = client.clone();
             tokio::spawn(async move { cl.plain_cash(depth, tt).await })
                 .map(|r| r.ok().unwrap_or_default())
@@ -236,7 +236,7 @@ fn claim_treasures(
 ) -> FuturesUnordered<impl Future<Output = Vec<u64>>> {
     treasures
         .drain()
-        .flat_map(move |t| claim_treasure(client, t))
+        .flat_map(|t| claim_treasure(client, t))
         .collect()
 }
 
