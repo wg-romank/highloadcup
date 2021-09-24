@@ -1,3 +1,7 @@
+pub mod accounting;
+pub mod stats;
+pub mod worker;
+
 use tokio::sync::mpsc;
 
 pub trait Actor {

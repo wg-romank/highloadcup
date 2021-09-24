@@ -5,11 +5,11 @@ use std::time::Instant;
 use tokio::sync::oneshot;
 use tokio::sync::mpsc;
 
-use crate::accounting::MessageForAccounting;
-use crate::client::{Client, ClientResponse};
+use crate::models::messages::MessageForAccounting;
+use crate::http::client::{Client, ClientResponse};
 use crate::constants::TIME_LIMIT_MS;
-use crate::dto::{Area, Explore, License};
-use crate::model::{PendingDig, Treasure};
+use crate::http::dto::{Area, Explore, License};
+use crate::models::data::{PendingDig, Treasure};
 
 pub struct Worker {
     client: Client,

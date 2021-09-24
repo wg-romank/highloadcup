@@ -1,5 +1,5 @@
-use crate::dto::*;
-use crate::model::Treasure;
+use crate::http::dto::*;
+use crate::models::data::Treasure;
 use futures::stream::FuturesUnordered;
 use futures::{Future, FutureExt, StreamExt};
 use reqwest::StatusCode;
@@ -12,8 +12,8 @@ use std::time::Instant;
 use reqwest::Error;
 use tokio::sync::mpsc;
 
-use crate::stats::StatsMessage;
-use crate::stats::StatsMessage::{RecordCash, RecordDig, RecordExplore, RecordLicense};
+use crate::models::messages::StatsMessage;
+use crate::models::messages::StatsMessage::*;
 
 #[derive(Clone)]
 pub struct Client {

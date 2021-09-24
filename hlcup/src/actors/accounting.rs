@@ -1,13 +1,14 @@
-use crate::client::claim_all;
-use crate::client::Client;
-use crate::dto::License;
-use crate::model::Treasure;
-use crate::util::Actor;
+use crate::MessageForAccounting;
+use crate::http::client::claim_all;
+use crate::http::client::Client;
+use crate::http::dto::License;
+use crate::models::data::Treasure;
+use crate::actors::Actor;
 use std::time::Duration;
 
 use std::collections::{BinaryHeap, HashMap};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 use lazy_static::lazy_static;
@@ -35,13 +36,6 @@ pub struct Accounting {
     licenses: Vec<License>,
     coins: Vec<u64>,
     max_concurrent_licenses: u8,
-}
-
-#[derive(Debug)]
-pub enum MessageForAccounting {
-    TreasureToClaim(Treasure),
-    GetLicense(oneshot::Sender<Vec<License>>),
-    LicenseExpired(u64),
 }
 
 impl Accounting {

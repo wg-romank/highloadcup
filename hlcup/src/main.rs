@@ -1,24 +1,23 @@
-mod accounting;
-mod client;
+mod http;
+mod actors;
 mod constants;
-mod dto;
-mod model;
-mod stats;
-mod util;
-mod worker;
+mod models;
 
-use crate::accounting::MessageForAccounting;
+#[cfg(test)]
+mod tests;
+
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-use crate::client::Client;
-use crate::dto::*;
-use crate::accounting::Accounting;
-use crate::stats::{StatsActor, StatsMessage};
-use crate::util::Handler;
-use crate::worker::Worker;
+use crate::models::messages::{MessageForAccounting, StatsMessage};
+use crate::http::client::Client;
+use crate::http::dto::Area;
+use crate::actors::accounting::Accounting;
+use crate::actors::stats::{StatsActor};
+use crate::actors::Handler;
+use crate::actors::worker::Worker;
 
 #[derive(Clone)]
 pub struct Rules {

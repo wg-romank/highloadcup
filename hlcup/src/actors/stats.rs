@@ -1,38 +1,9 @@
-use crate::util::Actor;
+use crate::models::messages::StatsMessage;
+use crate::actors::Actor;
 use histogram::Histogram;
 use reqwest::StatusCode;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio::sync::mpsc;
-
-#[derive(Debug)]
-pub enum StatsMessage {
-    ShowStats,
-    RecordExplore {
-        area_size: u64,
-        duration: u64,
-        status: Option<StatusCode>,
-    },
-    RecordDig {
-        depth: u8,
-        x: u64,
-        y: u64,
-        duration: u64,
-        found: bool,
-        status: Option<StatusCode>,
-    },
-    RecordCash {
-        depth: u8,
-        amount: u64,
-        duration: u64,
-        status: Option<StatusCode>,
-    },
-    RecordLicense {
-        duration: u64,
-        coins: u64,
-        allowed: u8,
-        status: Option<StatusCode>,
-    },
-}
 
 pub struct StatsActor {
     stats: Stats,
