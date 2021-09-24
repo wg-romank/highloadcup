@@ -7,21 +7,19 @@ mod stats;
 mod util;
 mod worker;
 
-use crate::accounting::Accounting;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use std::time::Instant;
 
-use client::Client;
-
-use dto::*;
-
+use crate::client::Client;
+use crate::dto::*;
+use crate::accounting::Accounting;
 use crate::constants::N_WORKERS;
 use crate::stats::{StatsActor, StatsMessage};
 use crate::util::Handler;
-use worker::Worker;
+use crate::worker::Worker;
 
-async fn _main(client: Client, started: Instant, areas: Vec<Area>) {
+async fn task(client: Client, started: Instant, areas: Vec<Area>) {
     let mk_accounting = Accounting::new(&client);
     let accounting_handle = Handler::new(mk_accounting);
 
@@ -47,7 +45,7 @@ fn spawn_tasks(
                 size_x: w,
                 size_y: h,
             };
-            _main(
+            task(
                 client,
                 started,
                 area.divide().iter().flat_map(|a| a.divide()).collect(),
