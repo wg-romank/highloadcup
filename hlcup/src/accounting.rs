@@ -12,8 +12,6 @@ use tokio::time::timeout;
 
 use lazy_static::lazy_static;
 
-use crate::constants::CONCURRENT_LICENSES;
-
 // const COINS_MAX: usize = 21;
 
 lazy_static! {
@@ -36,6 +34,7 @@ pub struct Accounting {
     active_licenses: u8,
     licenses: Vec<License>,
     coins: Vec<u64>,
+    max_concurrent_licenses: u8,
 }
 
 #[derive(Debug)]
@@ -46,7 +45,7 @@ pub enum MessageForAccounting {
 }
 
 impl Accounting {
-    pub fn new(c: &Client) -> impl FnOnce(mpsc::Receiver<MessageForAccounting>) -> Self {
+    pub fn new(c: &Client, max_concurrent_licenses: u8) -> impl FnOnce(mpsc::Receiver<MessageForAccounting>) -> Self {
         let client = c.clone();
         move |rx| Self {
             client,
@@ -57,6 +56,7 @@ impl Accounting {
             active_licenses: 0,
             licenses: vec![],
             coins: vec![],
+            max_concurrent_licenses,
         }
     }
 }
@@ -67,7 +67,7 @@ impl Accounting {
         self.coins.extend(ccc);
 
         // todo: join with futures unordered
-        if self.active_licenses < CONCURRENT_LICENSES {
+        if self.active_licenses < self.max_concurrent_licenses {
             let lic = //if self.coins.len() > 1000 {
             //     let coins_to_use = COINS
             //         .iter()

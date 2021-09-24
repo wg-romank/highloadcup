@@ -13,6 +13,14 @@ pub struct Area {
 }
 
 impl Area {
+    pub fn initial_stripe(w: u64, h: u64, i: u64) -> Self {
+        Self { pos_x: w * i, pos_y: 0, size_x: w, size_y: h }
+    }
+
+    pub fn split_in_8(&self) -> Vec<Area> {
+        self.divide().iter().flat_map(|a| a.divide()).collect()
+    }
+
     pub fn size(&self) -> u64 {
         self.size_x * self.size_y
     }
