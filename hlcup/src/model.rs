@@ -1,4 +1,3 @@
-use crate::constants::MAX_DEPTH;
 use crate::dto::Dig;
 use std::cmp::Ordering;
 
@@ -48,8 +47,8 @@ impl PendingDig {
         }
     }
 
-    pub fn next_level(&self, excavated: u64) -> Option<PendingDig> {
-        if self.depth < MAX_DEPTH && self.remaining > excavated {
+    pub fn next_level(&self, max_depth: u8, excavated: u64) -> Option<PendingDig> {
+        if self.depth < max_depth && self.remaining > excavated {
             Some(PendingDig {
                 depth: self.depth + 1,
                 remaining: self.remaining - excavated,

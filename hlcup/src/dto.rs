@@ -1,4 +1,4 @@
-use crate::constants::{AVG_DIG_MS, MAX_DEPTH, TIME_LIMIT_MS};
+use crate::constants::{AVG_DIG_MS, TIME_LIMIT_MS};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::time::Instant;
@@ -87,15 +87,15 @@ pub struct Explore {
 }
 
 impl Explore {
-    pub fn cost(&self) -> u128 {
+    pub fn cost(&self, max_depth: u8) -> u128 {
         // todo: constants are no good here
-        self.area.size() as u128 * (MAX_DEPTH as u128 / 3) * AVG_DIG_MS
+        self.area.size() as u128 * (max_depth as u128 / 3) * AVG_DIG_MS
     }
 
-    pub fn is_managable(&self, started: Instant) -> bool {
+    pub fn is_managable(&self, started: Instant, max_depth: u8) -> bool {
         let time_since_started_ms = started.elapsed().as_millis();
         let remaining_time_ms = TIME_LIMIT_MS - time_since_started_ms;
-        self.cost() < remaining_time_ms
+        self.cost(max_depth) < remaining_time_ms
     }
 }
 

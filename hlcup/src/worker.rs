@@ -1,3 +1,4 @@
+use crate::Rules;
 use crate::Handler;
 use std::collections::BinaryHeap;
 use std::time::Instant;
@@ -6,12 +7,13 @@ use tokio::sync::oneshot;
 
 use crate::accounting::MessageForAccounting;
 use crate::client::{Client, ClientResponse};
-use crate::constants::{MAX_DEPTH, TIME_LIMIT_MS};
+use crate::constants::TIME_LIMIT_MS;
 use crate::dto::{Area, Explore, License};
 use crate::model::{PendingDig, Treasure};
 
 pub struct Worker {
     client: Client,
+    rules: Rules,
     licenses: Vec<License>,
     explore_heap: BinaryHeap<Explore>,
     dig_heap: BinaryHeap<PendingDig>,
@@ -32,16 +34,18 @@ impl Worker {
 
     pub async fn new(
         client: Client,
+        rules: Rules,
         started: Instant,
         areas: Vec<Area>,
         accounting_handle: Handler<MessageForAccounting>,
     ) -> Self {
-        let explore_heap = Worker::init_state(&client, started, areas)
+        let explore_heap = Worker::init_state(&client, &rules, started, areas)
             .await
             .expect("failed to initialize worker state");
 
         Self {
             client,
+            rules,
             licenses: vec![],
             explore_heap,
             dig_heap: BinaryHeap::<PendingDig>::new(),
@@ -52,6 +56,7 @@ impl Worker {
     // todo: get rid of it
     async fn init_state(
         client: &Client,
+        rules: &Rules,
         started: Instant,
         areas: Vec<Area>,
     ) -> ClientResponse<BinaryHeap<Explore>> {
@@ -65,7 +70,7 @@ impl Worker {
         let mut explore_heap = BinaryHeap::new();
         while let Some(a) = errors.pop() {
             match client.explore(&a.area).await {
-                Ok(result) if result.is_managable(started) => {
+                Ok(result) if result.is_managable(started, rules.max_depth) => {
                     explore_heap.push(result);
                 }
                 Ok(result) => errors.extend(result.area.divide().into_iter().map(|a| Explore {
@@ -83,8 +88,8 @@ impl Worker {
         let mut cum_cost = 0;
         while let Some(e) = explore_heap.pop() {
             // todo: skip this if
-            if e.is_managable(started) {
-                cum_cost += e.cost();
+            if e.is_managable(started, rules.max_depth) {
+                cum_cost += e.cost(rules.max_depth);
                 ff.push(e);
 
                 let time_since_started_ms = started.elapsed().as_millis();
@@ -147,7 +152,7 @@ impl Worker {
                 let treasure = self.client.dig(&pending_dig.to_dig(lic.id)).await?;
 
                 let treasures_count = treasure.len() as u64;
-                if let Some(next_level) = pending_dig.next_level(treasures_count) {
+                if let Some(next_level) = pending_dig.next_level(self.rules.max_depth, treasures_count) {
                     self.dig_heap.push(next_level);
                 }
 
@@ -189,7 +194,7 @@ impl Worker {
     fn pending_digs(&self) -> u64 {
         self.dig_heap
             .iter()
-            .map(|pd| (MAX_DEPTH + 1 - pd.depth) as u64)
+            .map(|pd| (self.rules.max_depth + 1 - pd.depth) as u64)
             .sum()
     }
 }
