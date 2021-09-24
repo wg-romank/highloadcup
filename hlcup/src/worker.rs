@@ -1,9 +1,10 @@
+use crate::Handler;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
 use tokio::sync::oneshot;
 
-use crate::accounting::{AccountingHandle, MessageForAccounting};
+use crate::accounting::MessageForAccounting;
 use crate::client::{Client, ClientResponse};
 use crate::constants::{MAX_DEPTH, TIME_LIMIT_MS};
 use crate::dto::{Area, Explore, License};
@@ -14,7 +15,7 @@ pub struct Worker {
     licenses: Vec<License>,
     explore_heap: BinaryHeap<Explore>,
     dig_heap: BinaryHeap<PendingDig>,
-    accounting_handle: AccountingHandle,
+    accounting_handle: Handler<MessageForAccounting>,
 }
 
 impl Worker {
@@ -33,9 +34,11 @@ impl Worker {
         client: Client,
         started: Instant,
         areas: Vec<Area>,
-        accounting_handle: AccountingHandle,
+        accounting_handle: Handler<MessageForAccounting>,
     ) -> Self {
-        let explore_heap = Worker::init_state(&client, started, areas).await.unwrap();
+        let explore_heap = Worker::init_state(&client, started, areas)
+            .await
+            .expect("failed to initialize worker state");
 
         Self {
             client,
@@ -150,7 +153,7 @@ impl Worker {
 
                 if treasures_count > 0 {
                     self.accounting_handle
-                        .sender
+                        .tx
                         .send(MessageForAccounting::TreasureToClaim(Treasure {
                             depth: pending_dig.depth,
                             treasures: treasure,
@@ -163,7 +166,7 @@ impl Worker {
                     self.licenses.push(lic)
                 } else {
                     self.accounting_handle
-                        .sender
+                        .tx
                         .send(MessageForAccounting::LicenseExpired(self.pending_digs()))
                         .await
                         .expect("failed to notify for license expiration");
@@ -172,7 +175,7 @@ impl Worker {
                 self.dig_heap.push(pending_dig);
                 let (tx, rx) = oneshot::channel();
                 self.accounting_handle
-                    .sender
+                    .tx
                     .send(MessageForAccounting::GetLicense(tx))
                     .await
                     .expect("failed to request license");
@@ -186,7 +189,7 @@ impl Worker {
     fn pending_digs(&self) -> u64 {
         self.dig_heap
             .iter()
-            .map(|pd| MAX_DEPTH + 1 - pd.depth as u64)
+            .map(|pd| (MAX_DEPTH + 1 - pd.depth) as u64)
             .sum()
     }
 }

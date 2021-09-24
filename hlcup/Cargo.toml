@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Roman Kotelnikov <roman.kotelnikov@outlook.com>"]
 edition = "2018"
 
+[profile.release]
+debug = 1
+
 [dependencies]
 rand = "0.8.0"
 futures = "0.3"

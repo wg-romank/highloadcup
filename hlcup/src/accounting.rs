@@ -1,3 +1,6 @@
+use tokio::runtime::Runtime;
+use std::time::Duration;
+use crate::util::Actor;
 use crate::client::claim_all;
 use crate::client::Client;
 use crate::dto::License;
@@ -6,6 +9,7 @@ use crate::model::Treasure;
 use std::collections::{BinaryHeap, HashMap};
 
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::timeout;
 
 use lazy_static::lazy_static;
 
@@ -27,7 +31,6 @@ lazy_static! {
 pub struct Accounting {
     client: Client,
     rx: mpsc::Receiver<MessageForAccounting>,
-    selftx: mpsc::Sender<MessageForAccounting>,
     treasures: BinaryHeap<Treasure>,
     // coins_to_use: usize,
     digs_pending: u64,
@@ -41,19 +44,14 @@ pub enum MessageForAccounting {
     TreasureToClaim(Treasure),
     GetLicense(oneshot::Sender<Vec<License>>),
     LicenseExpired(u64),
-    Continue,
 }
 
 impl Accounting {
-    pub fn new(
-        client: Client,
-        rx: mpsc::Receiver<MessageForAccounting>,
-        selftx: mpsc::Sender<MessageForAccounting>,
-    ) -> Accounting {
-        Accounting {
-            client,
+    pub fn new(c: &Client) -> impl FnOnce(mpsc::Receiver<MessageForAccounting>) -> Self {
+        let client = c.clone();
+        move |rx| Self {
+            client, 
             rx,
-            selftx,
             treasures: BinaryHeap::new(),
             // coins_to_use: 2,
             digs_pending: 0,
@@ -94,54 +92,34 @@ impl Accounting {
     }
 
     pub async fn run(&mut self) {
-        while let Some(message) = self.rx.recv().await {
-            match message {
-                MessageForAccounting::TreasureToClaim(tid) => {
-                    self.treasures.push(tid);
-                }
-                MessageForAccounting::LicenseExpired(digs_pending) => {
-                    self.active_licenses -= 1;
-                    self.digs_pending = digs_pending
-                }
-                MessageForAccounting::GetLicense(tx) => {
-                    tx.send(self.licenses.clone())
-                        .expect("failed to send licenses to worker");
-                    self.licenses.clear();
-                }
-                MessageForAccounting::Continue => {
-                    self.update_state().await;
-                    assert!(
-                        self.selftx
-                            .send(MessageForAccounting::Continue)
-                            .await
-                            .is_ok(),
-                        "failed to send continue"
-                    );
-                }
+        loop {
+            match timeout(Duration::from_millis(9), self.rx.recv()).await {
+                Ok(Some(message)) => {
+                    match message {
+                        MessageForAccounting::TreasureToClaim(tid) => {
+                            self.treasures.push(tid);
+                        }
+                        MessageForAccounting::LicenseExpired(digs_pending) => {
+                            self.active_licenses -= 1;
+                            self.digs_pending = digs_pending
+                        }
+                        MessageForAccounting::GetLicense(tx) => {
+                            tx.send(self.licenses.clone())
+                                .expect("failed to send licenses to worker");
+                            self.licenses.clear();
+                        }
+                    }
+                },
+                _ => self.update_state().await
             }
         }
     }
 }
 
-#[derive(Clone)]
-pub struct AccountingHandle {
-    pub sender: mpsc::Sender<MessageForAccounting>,
-}
-
-impl AccountingHandle {
-    pub fn new(client: &Client) -> Self {
-        let (tx, rx) = mpsc::channel(1000);
-        let cl = client.clone();
-
-        let tx_clone = tx.clone();
+impl Actor for Accounting {
+    fn start(mut self) { 
         tokio::spawn(async move {
-            assert!(
-                tx_clone.send(MessageForAccounting::Continue).await.is_ok(),
-                "failed to start accounting"
-            );
-            Accounting::new(cl, rx, tx_clone).run().await
+            self.run().await;
         });
-
-        Self { sender: tx }
     }
 }

@@ -1,7 +1,8 @@
+use tokio::runtime::Runtime;
+use crate::util::Actor;
 use histogram::Histogram;
 use reqwest::StatusCode;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 #[derive(Debug)]
@@ -34,31 +35,16 @@ pub enum StatsMessage {
     },
 }
 
-pub struct StatsHandler {
-    pub tx: mpsc::Sender<StatsMessage>,
-}
-
-impl StatsHandler {
-    pub fn new(rt: &Runtime) -> Self {
-        let (tx, rx) = mpsc::channel(1000);
-        rt.spawn(async move {
-            StatsActor {
-                stats: Stats::new(),
-                rx,
-            }
-            .run()
-            .await
-        });
-        Self { tx }
-    }
-}
-
 pub struct StatsActor {
     stats: Stats,
     rx: mpsc::Receiver<StatsMessage>,
 }
 
 impl StatsActor {
+    pub fn new(rx: mpsc::Receiver<StatsMessage>) -> Self {
+        StatsActor { stats: Stats::new(), rx }
+    }
+
     pub async fn run(&mut self) {
         use StatsMessage::*;
         while let Some(msg) = self.rx.recv().await {
@@ -284,5 +270,13 @@ impl Stats {
         self.total += 1.;
         self.explore
             .inc(if area_size == 1 { 1 } else { 2 }, duration, err);
+    }
+}
+
+impl Actor for StatsActor {
+    fn start(mut self) -> () {
+        tokio::spawn(async move {
+            self.run().await;
+        });
     }
 }

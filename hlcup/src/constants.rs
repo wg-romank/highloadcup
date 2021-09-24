@@ -1,4 +1,4 @@
-pub const MAX_DEPTH: u64 = 10;
+pub const MAX_DEPTH: u8 = 10;
 pub const MAX_CONCURRENT_LICENSES: u8 = 10;
 pub const N_WORKERS: u8 = 1;
 
