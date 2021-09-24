@@ -179,7 +179,7 @@ impl Worker {
                     .send(MessageForAccounting::GetLicense(tx))
                     .await
                     .expect("failed to request license");
-                self.licenses.extend(rx.await.unwrap())
+                self.licenses.extend(rx.await.expect("failed to receive license"))
             }
         };
 
