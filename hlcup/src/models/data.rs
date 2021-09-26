@@ -1,10 +1,22 @@
 use crate::http::dto::Dig;
 use std::cmp::Ordering;
 
+#[derive(Debug)]
+pub struct Treasures {
+    pub depth: u8,
+    pub treasures: Vec<String>,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Treasure {
     pub depth: u8,
-    pub treasures: Vec<String>,
+    pub treasure: String,
+}
+
+impl Treasure {
+    pub fn new(depth: u8, treasure: String) -> Self {
+        Self { depth, treasure }
+    }
 }
 
 impl Ord for Treasure {

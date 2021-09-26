@@ -2,11 +2,11 @@ use reqwest::StatusCode;
 use tokio::sync::oneshot;
 
 use crate::http::dto::License;
-use crate::models::data::Treasure;
+use crate::models::data::Treasures;
 
 #[derive(Debug)]
 pub enum MessageForAccounting {
-    TreasureToClaim(Treasure),
+    TreasureToClaim(Treasures),
     GetLicense(oneshot::Sender<Vec<License>>),
     LicenseExpired(u64),
 }

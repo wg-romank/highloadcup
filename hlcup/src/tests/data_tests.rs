@@ -8,11 +8,11 @@ fn test_treasure_ord() {
     let mut hp = BinaryHeap::new();
     hp.push(Treasure {
         depth: 1,
-        treasures: vec![],
+        treasure: String::new(),
     });
     hp.push(Treasure {
         depth: 2,
-        treasures: vec![],
+        treasure: String::new(),
     });
 
     assert_eq!(hp.pop().unwrap().depth, 2);

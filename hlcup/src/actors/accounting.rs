@@ -89,7 +89,9 @@ impl Accounting {
             match timeout(Duration::from_millis(9), self.rx.recv()).await {
                 Ok(Some(message)) => match message {
                     MessageForAccounting::TreasureToClaim(tid) => {
-                        self.treasures.push(tid);
+                        let depth = tid.depth;
+                        tid.treasures.into_iter()
+                            .for_each(|t| self.treasures.push(Treasure::new(depth, t)));
                     }
                     MessageForAccounting::LicenseExpired(digs_pending) => {
                         self.active_licenses -= 1;

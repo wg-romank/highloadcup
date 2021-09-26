@@ -178,19 +178,19 @@ impl Client {
         .await
     }
 
-    pub async fn cash(&self, depth: u8, treasure: String) -> ClientResponse<Vec<u64>> {
+    pub async fn cash(&self, t: &Treasure) -> ClientResponse<Vec<u64>> {
         self.call(
             &self.cash_url,
-            &treasure,
+            &t.treasure,
             |coins: &Vec<u64>, elapsed| RecordCash {
                 amount: coins.len() as u64,
-                depth,
+                depth: t.depth,
                 duration: elapsed,
                 status: None,
             },
             |status, elapsed| RecordCash {
                 amount: 0,
-                depth,
+                depth: t.depth,
                 duration: elapsed,
                 status,
             },
@@ -201,14 +201,6 @@ impl Client {
 }
 
 impl Client {
-    pub async fn plain_cash(&self, depth: u8, treasure: String) -> Vec<u64> {
-        loop {
-            if let Ok(coins) = self.cash(depth, treasure.clone()).await {
-                break coins;
-            }
-        }
-    }
-
     pub async fn plain_license(&self, coins: Vec<u64>) -> License {
         loop {
             if let Ok(lic) = self.get_license(coins.clone()).await {
@@ -218,31 +210,33 @@ impl Client {
     }
 }
 
-fn claim_treasure(client: &Client, t: Treasure) -> Vec<impl Future<Output = Vec<u64>>> {
-    let depth = t.depth;
-    t.treasures
-        .into_iter()
-        .map(|tt| {
-            let cl = client.clone();
-            tokio::spawn(async move { cl.plain_cash(depth, tt).await })
-                .map(|r| r.ok().unwrap_or_default())
-        })
-        .collect()
-}
-
 fn claim_treasures(
     client: &Client,
     treasures: &mut BinaryHeap<Treasure>,
-) -> FuturesUnordered<impl Future<Output = Vec<u64>>> {
+) -> FuturesUnordered<impl Future<Output = Result<Vec<u64>, Treasure>>> {
     treasures
         .drain()
-        .flat_map(|t| claim_treasure(client, t))
+        .map(|t| {
+            let cl = client.clone();
+            (t.clone(), tokio::spawn(async move { cl.cash(&t).await }))
+        })
+        .map(|(t, handle)| handle.map(|outer| match outer {
+            Ok(response) => response.map_err(|_| t),
+            Err(_) => Err(t)
+        }))
         .collect()
 }
 
 pub async fn claim_all(client: &Client, treasures: &mut BinaryHeap<Treasure>) -> Vec<u64> {
-    let cc = claim_treasures(client, treasures)
-        .collect::<Vec<Vec<u64>>>()
+    let results = claim_treasures(client, treasures)
+        .collect::<Vec<Result<Vec<u64>, Treasure>>>()
         .await;
-    cc.into_iter().flatten().collect::<Vec<u64>>()
+
+    results.into_iter().fold(vec![], |mut coins, r| {
+        match r {
+            Ok(c) => coins.extend(c),
+            Err(t) => treasures.push(t),
+        };
+        coins
+    })
 }

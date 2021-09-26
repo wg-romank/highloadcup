@@ -9,7 +9,7 @@ use crate::models::messages::MessageForAccounting;
 use crate::http::client::{Client, ClientResponse};
 use crate::constants::TIME_LIMIT_MS;
 use crate::http::dto::{Area, Explore, License};
-use crate::models::data::{PendingDig, Treasure};
+use crate::models::data::{PendingDig, Treasures};
 
 pub struct Worker {
     client: Client,
@@ -158,7 +158,7 @@ impl Worker {
 
                 if treasures_count > 0 {
                     self.accounting_handle
-                        .send(MessageForAccounting::TreasureToClaim(Treasure {
+                        .send(MessageForAccounting::TreasureToClaim(Treasures {
                             depth: pending_dig.depth,
                             treasures: treasure,
                         }))
