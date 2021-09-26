@@ -158,9 +158,8 @@ impl Accounting {
                         self.prep_licenses().await;
                     }
                     MessageForAccounting::GetLicense(tx) => {
-                        tx.send(self.licenses.clone())
+                        tx.send(self.licenses.pop())
                             .expect("failed to send licenses to worker");
-                        self.licenses.clear();
                     },
                 },
                 _ => {

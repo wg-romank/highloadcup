@@ -17,14 +17,14 @@ impl Area {
         Self { pos_x: w * i, pos_y: 0, size_x: w, size_y: h }
     }
 
-    pub fn split_in_8(&self) -> Vec<Area> {
-        self.divide().iter().flat_map(|a| a.divide()).collect()
+    pub fn split_in_8(self) -> Vec<Area> {
+        self.divide().into_iter().flat_map(|a| a.divide()).collect()
     }
 
     pub fn size(&self) -> u64 {
         self.size_x * self.size_y
     }
-    pub fn split_x(&self) -> Vec<Area> {
+    pub fn split_x(self) -> Vec<Area> {
         let half_x = (self.size_x as f64 / 2.).floor() as u64;
 
         let mut result = vec![];
@@ -44,11 +44,11 @@ impl Area {
 
             result
         } else {
-            vec![*self]
+            vec![self]
         }
     }
 
-    pub fn split_y(&self) -> Vec<Area> {
+    pub fn split_y(self) -> Vec<Area> {
         let half_y = (self.size_y as f64 / 2.).floor() as u64;
 
         let mut result = vec![];
@@ -68,11 +68,11 @@ impl Area {
 
             result
         } else {
-            vec![*self]
+            vec![self]
         }
     }
 
-    pub fn divide(&self) -> Vec<Area> {
+    pub fn divide(self) -> Vec<Area> {
         self.split_x()
             .into_iter()
             .flat_map(|a| a.split_y())
@@ -112,7 +112,7 @@ impl PartialOrd for Explore {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Copy, Default)]
+#[derive(Debug, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct License {
     pub id: u64,

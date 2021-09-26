@@ -2,19 +2,19 @@ use crate::Rules;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
-use tokio::sync::oneshot;
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
-use crate::models::messages::MessageForAccounting;
-use crate::http::client::{Client, ClientResponse};
 use crate::constants::TIME_LIMIT_MS;
+use crate::http::client::{Client, ClientResponse};
 use crate::http::dto::{Area, Explore, License};
 use crate::models::data::{PendingDig, Treasures};
+use crate::models::messages::MessageForAccounting;
 
 pub struct Worker {
     client: Client,
     rules: Rules,
-    licenses: Vec<License>,
+    license: Option<License>,
     explore_heap: BinaryHeap<Explore>,
     dig_heap: BinaryHeap<PendingDig>,
     accounting_handle: mpsc::Sender<MessageForAccounting>,
@@ -46,7 +46,7 @@ impl Worker {
         Self {
             client,
             rules,
-            licenses: vec![],
+            license: None,
             explore_heap,
             dig_heap: BinaryHeap::<PendingDig>::new(),
             accounting_handle,
@@ -148,39 +148,43 @@ impl Worker {
 
         // todo: ordering
         if let Some(pending_dig) = self.dig_heap.pop() {
-            if let Some(mut lic) = self.licenses.pop() {
-                let treasure = self.client.dig(&pending_dig.to_dig(lic.id)).await?;
+            match &mut self.license {
+                Some(lic) => {
+                    let treasure = self.client.dig(&pending_dig.to_dig(lic.id)).await?;
 
-                let treasures_count = treasure.len() as u64;
-                if let Some(next_level) = pending_dig.next_level(self.rules.max_depth, treasures_count) {
-                    self.dig_heap.push(next_level);
-                }
+                    let treasures_count = treasure.len() as u64;
+                    if let Some(next_level) =
+                        pending_dig.next_level(self.rules.max_depth, treasures_count)
+                    {
+                        self.dig_heap.push(next_level);
+                    }
 
-                if treasures_count > 0 {
-                    self.accounting_handle
-                        .send(MessageForAccounting::TreasureToClaim(Treasures {
-                            depth: pending_dig.depth,
-                            treasures: treasure,
-                        }))
-                        .await
-                        .expect("failed to send treasure");
+                    if treasures_count > 0 {
+                        self.accounting_handle
+                            .send(MessageForAccounting::TreasureToClaim(Treasures {
+                                depth: pending_dig.depth,
+                                treasures: treasure,
+                            }))
+                            .await
+                            .expect("failed to send treasure");
+                    }
+                    if !lic.increment() {
+                        self.license = None;
+                        self.accounting_handle
+                            .send(MessageForAccounting::LicenseExpired(self.pending_digs()))
+                            .await
+                            .expect("failed to notify for license expiration");
+                    }
                 }
-                if lic.increment() {
-                    self.licenses.push(lic)
-                } else {
+                None => {
+                    self.dig_heap.push(pending_dig);
+                    let (tx, rx) = oneshot::channel();
                     self.accounting_handle
-                        .send(MessageForAccounting::LicenseExpired(self.pending_digs()))
+                        .send(MessageForAccounting::GetLicense(tx))
                         .await
-                        .expect("failed to notify for license expiration");
+                        .expect("failed to request license");
+                    self.license = rx.await.expect("failed to receive license")
                 }
-            } else {
-                self.dig_heap.push(pending_dig);
-                let (tx, rx) = oneshot::channel();
-                self.accounting_handle
-                    .send(MessageForAccounting::GetLicense(tx))
-                    .await
-                    .expect("failed to request license");
-                self.licenses.extend(rx.await.expect("failed to receive license"))
             }
         };
 

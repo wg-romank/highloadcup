@@ -31,7 +31,7 @@ fn test_area_divide() {
         items
     );
 
-    let division2 = division[0].divide();
+    let division2 = division[0].clone().divide();
 
     let items2 = division2.iter().map(|a| hash(a)).collect::<Vec<String>>();
 
@@ -62,7 +62,7 @@ fn test_area_divide() {
         size_x: 1,
         size_y: 1,
     };
-    assert_eq!(c.divide(), vec![c])
+    assert_eq!(c.clone().divide(), vec![c])
 }
 
 #[test]

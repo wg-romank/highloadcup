@@ -7,7 +7,7 @@ use crate::models::data::Treasures;
 #[derive(Debug)]
 pub enum MessageForAccounting {
     TreasureToClaim(Treasures),
-    GetLicense(oneshot::Sender<Vec<License>>),
+    GetLicense(oneshot::Sender<Option<License>>),
     LicenseExpired(u64),
 }
 
