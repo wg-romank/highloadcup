@@ -128,10 +128,11 @@ impl Accounting {
     }
 
     async fn prep_licenses(&mut self) {
-        if self.active_licenses < self.max_concurrent_licenses {
+        let to_prep = self.max_concurrent_licenses - self.active_licenses;
+        if to_prep > 0 {
             let licenses = Accounting::fetch_and_update(
                 &self.client,
-                1,
+                to_prep,
                 &mut self.coins
             ).await;
             self.active_licenses += licenses.len() as u8;
