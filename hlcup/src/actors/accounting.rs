@@ -57,8 +57,8 @@ impl Accounting {
 
 impl Accounting {
     async fn update_state(&mut self) {
-        let ccc = claim_all(&self.client, &mut self.treasures).await;
-        self.coins.extend(ccc);
+        self.coins.extend(
+            claim_all(&self.client, &mut self.treasures).await);
 
         // todo: join with futures unordered
         if self.active_licenses < self.max_concurrent_licenses {
