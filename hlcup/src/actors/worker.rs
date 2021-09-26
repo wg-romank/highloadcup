@@ -61,9 +61,9 @@ impl Worker {
         areas: Vec<Area>,
     ) -> ClientResponse<BinaryHeap<Explore>> {
         let mut errors = BinaryHeap::new();
-        areas.clone().iter().for_each(|a| {
+        areas.clone().into_iter().for_each(|area| {
             errors.push(Explore {
-                area: *a,
+                area,
                 amount: u64::max_value(),
             })
         });
@@ -73,10 +73,10 @@ impl Worker {
                 Ok(result) if result.is_managable(started, rules.max_depth) => {
                     explore_heap.push(result);
                 }
-                Ok(result) => errors.extend(result.area.divide().into_iter().map(|a| Explore {
-                    area: a,
-                    amount: result.amount,
-                })),
+                Ok(result) => {
+                    let amount = result.amount;
+                    errors.extend(result.area.divide().into_iter().map(|area| Explore { area, amount }))
+                },
                 Err(_) => errors.extend(a.area.divide().into_iter().map(|a| Explore {
                     area: a,
                     amount: u64::max_value(),
@@ -120,9 +120,10 @@ impl Worker {
                         .push(PendingDig::new(ar.area.pos_x, ar.area.pos_y, ar.amount));
                 }
                 _ => {
-                    let divided = ar.area.divide();
+                    let mut divided = ar.area.divide();
+                    let last = divided.pop();
                     let mut cum = 0;
-                    for a in divided[..divided.len() - 1].iter() {
+                    for a in divided.iter() {
                         let res = self.client.explore(a).await?;
                         if res.amount > 0 {
                             cum += res.amount;
@@ -133,9 +134,9 @@ impl Worker {
                         };
                     }
                     if ar.amount > cum {
-                        if let Some(a) = divided.last() {
+                        if let Some(area) = last {
                             self.explore_heap.push(Explore {
-                                area: *a,
+                                area,
                                 amount: ar.amount - cum,
                             });
                         }

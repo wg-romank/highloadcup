@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::time::Instant;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Default)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Area {
     pub pos_x: u64,
