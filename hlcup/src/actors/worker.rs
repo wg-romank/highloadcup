@@ -61,7 +61,7 @@ impl Worker {
         areas: Vec<Area>,
     ) -> ClientResponse<BinaryHeap<Explore>> {
         let mut errors = BinaryHeap::new();
-        areas.clone().into_iter().for_each(|area| {
+        areas.into_iter().for_each(|area| {
             errors.push(Explore {
                 area,
                 amount: u64::max_value(),

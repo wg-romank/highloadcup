@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::time::Instant;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
+#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Area {
     pub pos_x: u64,
@@ -112,7 +113,7 @@ impl PartialOrd for Explore {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct License {
     pub id: u64,
