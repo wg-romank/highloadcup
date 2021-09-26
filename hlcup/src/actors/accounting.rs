@@ -1,17 +1,18 @@
+use std::time::Duration;
+use std::collections::{BinaryHeap, HashMap};
+
+use futures::stream::FuturesUnordered;
+use futures::{Future, FutureExt, StreamExt};
+
+use tokio::sync::mpsc;
+
+use lazy_static::lazy_static;
+
 use crate::MessageForAccounting;
-use crate::http::client::claim_all;
 use crate::http::client::Client;
 use crate::http::dto::License;
 use crate::models::data::Treasure;
 use crate::actors::Actor;
-use std::time::Duration;
-
-use std::collections::{BinaryHeap, HashMap};
-
-use tokio::sync::mpsc;
-use tokio::time::timeout;
-
-use lazy_static::lazy_static;
 
 // const COINS_MAX: usize = 21;
 
@@ -56,54 +57,115 @@ impl Accounting {
 }
 
 impl Accounting {
-    async fn update_state(&mut self) {
-        self.coins.extend(
-            claim_all(&self.client, &mut self.treasures).await);
-
-        // todo: join with futures unordered
-        if self.active_licenses < self.max_concurrent_licenses {
-            let lic = //if self.coins.len() > 1000 {
-            //     let coins_to_use = COINS
-            //         .iter()
-            //         .find(|(&k, &v)| v >= self.digs_pending )
-            //         .map(|(&k, _)| k)
-            //         .unwrap_or(COINS_MAX) as usize;
-            //     let cc = self.coins.drain(0..coins_to_use).collect::<Vec<u64>>();
-            //     // if self.coins_to_use < 50 {
-            //     //     self.coins_to_use += 1;
-            //     // };
-            //     self.client.plain_license(cc)
-            // } else
-            if let Some(c) = self.coins.pop() {
-                self.client.plain_license(vec![c])
-            } else {
-                self.client.plain_license(vec![])
-            }.await;
-            self.licenses.push(lic);
-            self.active_licenses += 1;
-        };
+    fn claim_treasures(
+        client: &Client,
+        treasures: &mut BinaryHeap<Treasure>,
+    ) -> FuturesUnordered<impl Future<Output = Result<Vec<u64>, Treasure>>> {
+        treasures
+            .drain()
+            .map(|t| {
+                let cl = client.clone();
+                async move { (cl.cash(&t).await, t) }
+            })
+            .map(|future|
+                future.map(|(res, t)| res.map_err(|_| t))
+            )
+            .collect()
     }
 
+    async fn claim_all(client: &Client, treasures: &mut BinaryHeap<Treasure>) -> Vec<u64> {
+        let results = Accounting::claim_treasures(client, treasures)
+            .collect::<Vec<Result<Vec<u64>, Treasure>>>()
+            .await;
+
+        results.into_iter().fold(vec![], |mut coins, r| {
+            match r {
+                Ok(c) => coins.extend(c),
+                Err(t) => treasures.push(t),
+            };
+            coins
+        })
+    }
+
+    fn fetch_licenses(
+        client: &Client,
+        amount: u8,
+        coins: &mut Vec<u64>
+    ) -> FuturesUnordered<impl Future<Output=Result<License, Vec<u64>>>> {
+        (0..amount)
+            .map(|_| {
+                let cl = client.clone();
+                let coin = if let Some(c) = coins.pop() {
+                    vec![c]
+                } else {
+                    vec![]
+                };
+                async move { (cl.get_license(&coin).await, coin) }
+            })
+            .map(|future|
+                future.map(|(res, coin)| res.map_err(|_| coin))
+            )
+            .collect()
+    }
+
+    async fn fetch_and_update(client: &Client, amount: u8, coins: &mut Vec<u64>) -> Vec<License> {
+        let licenses = Accounting::fetch_licenses(client, amount, coins)
+            .collect::<Vec<Result<License, Vec<u64>>>>()
+            .await;
+
+        licenses.into_iter().fold(vec![], |mut acc, item| {
+            match item {
+                Ok(lic) => acc.push(lic),
+                Err(c) => coins.extend(c),
+            };
+            acc
+        })
+    }
+
+    async fn cash_out(&mut self) {
+        self.coins.extend(
+            Accounting::claim_all(&self.client, &mut self.treasures).await);
+    }
+
+    async fn prep_licenses(&mut self) {
+        if self.active_licenses < self.max_concurrent_licenses {
+            let licenses = Accounting::fetch_and_update(
+                &self.client,
+                1,
+                &mut self.coins
+            ).await;
+            self.active_licenses += licenses.len() as u8;
+            self.licenses.extend(licenses);
+        }
+    }
+}
+
+impl Accounting {
     pub async fn run(&mut self) {
         loop {
-            match timeout(Duration::from_millis(9), self.rx.recv()).await {
+            match tokio::time::timeout(Duration::from_millis(9), self.rx.recv()).await {
                 Ok(Some(message)) => match message {
                     MessageForAccounting::TreasureToClaim(tid) => {
                         let depth = tid.depth;
                         tid.treasures.into_iter()
                             .for_each(|t| self.treasures.push(Treasure::new(depth, t)));
+                        self.cash_out().await;
                     }
                     MessageForAccounting::LicenseExpired(digs_pending) => {
                         self.active_licenses -= 1;
-                        self.digs_pending = digs_pending
+                        self.digs_pending = digs_pending;
+                        self.prep_licenses().await;
                     }
                     MessageForAccounting::GetLicense(tx) => {
                         tx.send(self.licenses.clone())
                             .expect("failed to send licenses to worker");
                         self.licenses.clear();
-                    }
+                    },
                 },
-                _ => self.update_state().await,
+                _ => {
+                    self.cash_out().await;
+                    self.prep_licenses().await;
+                },
             }
         }
     }

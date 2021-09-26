@@ -165,8 +165,7 @@ impl Worker {
                         .await
                         .expect("failed to send treasure");
                 }
-                lic.dig_used += 1;
-                if lic.is_still_valid() {
+                if lic.increment() {
                     self.licenses.push(lic)
                 } else {
                     self.accounting_handle

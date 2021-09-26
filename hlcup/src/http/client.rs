@@ -1,19 +1,18 @@
-use crate::http::dto::*;
-use crate::models::data::Treasure;
-use futures::stream::FuturesUnordered;
-use futures::{Future, FutureExt, StreamExt};
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::collections::BinaryHeap;
 
 use std::time::Instant;
 
-use reqwest::Error;
 use tokio::sync::mpsc;
 
+use crate::http::dto::*;
+use crate::http::error::DescriptiveError;
+use crate::models::data::Treasure;
 use crate::models::messages::StatsMessage;
 use crate::models::messages::StatsMessage::*;
+
+pub type ClientResponse<T> = Result<T, DescriptiveError>;
 
 #[derive(Clone)]
 pub struct Client {
@@ -38,35 +37,6 @@ impl Client {
             cash_url: base_url + "/cash",
             stats_handler,
         }
-    }
-}
-
-pub type ClientResponse<T> = Result<T, DescriptiveError>;
-
-#[derive(Debug)]
-pub struct DescriptiveError {
-    pub message: String,
-}
-
-impl DescriptiveError {
-    fn new(endpoint: &str, status_code: reqwest::StatusCode, message: String) -> DescriptiveError {
-        DescriptiveError {
-            message: format!("{} /{}: {}", status_code, endpoint, message),
-        }
-    }
-}
-
-impl std::convert::From<Error> for DescriptiveError {
-    fn from(e: Error) -> Self {
-        DescriptiveError {
-            message: format!("{}", e),
-        }
-    }
-}
-
-impl std::fmt::Display for DescriptiveError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "err: {}", &self.message)
     }
 }
 
@@ -96,7 +66,7 @@ impl Client {
                 self.send_stats(stats_success(&res, elapsed)).await;
                 Ok(res)
             }
-            reqwest::StatusCode::NOT_FOUND => {
+            reqwest::StatusCode::NOT_FOUND if endpoint == self.dig_url => {
                 self.send_stats(stats_failure(None, elapsed)).await;
                 Ok(Response::default())
             }
@@ -131,7 +101,7 @@ impl Client {
         .await
     }
 
-    pub async fn get_license(&self, coins: Vec<u64>) -> ClientResponse<License> {
+    pub async fn get_license(&self, coins: &Vec<u64>) -> ClientResponse<License> {
         let l = coins.len() as u64;
         self.call(
             &self.licenses_url,
@@ -198,45 +168,4 @@ impl Client {
         )
         .await
     }
-}
-
-impl Client {
-    pub async fn plain_license(&self, coins: Vec<u64>) -> License {
-        loop {
-            if let Ok(lic) = self.get_license(coins.clone()).await {
-                break lic;
-            }
-        }
-    }
-}
-
-fn claim_treasures(
-    client: &Client,
-    treasures: &mut BinaryHeap<Treasure>,
-) -> FuturesUnordered<impl Future<Output = Result<Vec<u64>, Treasure>>> {
-    treasures
-        .drain()
-        .map(|t| {
-            let cl = client.clone();
-            (t.clone(), tokio::spawn(async move { cl.cash(&t).await }))
-        })
-        .map(|(t, handle)| handle.map(|outer| match outer {
-            Ok(response) => response.map_err(|_| t),
-            Err(_) => Err(t)
-        }))
-        .collect()
-}
-
-pub async fn claim_all(client: &Client, treasures: &mut BinaryHeap<Treasure>) -> Vec<u64> {
-    let results = claim_treasures(client, treasures)
-        .collect::<Vec<Result<Vec<u64>, Treasure>>>()
-        .await;
-
-    results.into_iter().fold(vec![], |mut coins, r| {
-        match r {
-            Ok(c) => coins.extend(c),
-            Err(t) => treasures.push(t),
-        };
-        coins
-    })
 }

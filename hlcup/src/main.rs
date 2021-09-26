@@ -30,7 +30,7 @@ pub struct Rules {
 
 impl Rules {
     pub fn new(n_workers: u64) -> Self {
-        Self { w: 3500 / n_workers, h: 3500, n_workers, max_concurrent_licenses: 10, max_depth: 10 }
+        Self { w: 3500 / n_workers, h: 3500, n_workers, max_concurrent_licenses: 7, max_depth: 10 }
     }
 }
 

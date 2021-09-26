@@ -121,7 +121,8 @@ pub struct License {
 }
 
 impl License {
-    pub fn is_still_valid(&self) -> bool {
+    pub fn increment(&mut self) -> bool {
+        self.dig_used += 1;
         self.dig_allowed > self.dig_used
     }
 }
