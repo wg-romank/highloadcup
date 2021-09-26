@@ -8,7 +8,6 @@ pub trait Actor {
     fn start(self);
 }
 
-#[derive(Clone)]
 pub struct Handler<Message> {
     pub tx: mpsc::Sender<Message>,
 }

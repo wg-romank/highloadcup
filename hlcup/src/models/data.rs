@@ -7,7 +7,7 @@ pub struct Treasures {
     pub treasures: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Treasure {
     pub depth: u8,
     pub treasure: String,
@@ -32,7 +32,7 @@ impl PartialOrd for Treasure {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PendingDig {
     pub x: u64,
     pub y: u64,
@@ -50,7 +50,7 @@ impl PendingDig {
         }
     }
 
-    pub fn to_dig(self, license_id: u64) -> Dig {
+    pub fn to_dig(&self, license_id: u64) -> Dig {
         Dig {
             license_id,
             pos_x: self.x,
